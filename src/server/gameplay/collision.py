@@ -1,4 +1,12 @@
 # === INTERNAL HELPERS ===
+from enum import IntEnum
+
+class CollisionType(IntEnum):
+    """Types of obstacles."""
+    NONE = 0
+    WALL = 1
+    AGENT = 2
+    BULLET = 3
 
 def _circles_overlap(x1: float, y1: float, r1: float,
                     x2: float, y2: float, r2: float) -> bool:
@@ -26,53 +34,46 @@ def _circle_hits_wall(x: float, y: float, radius: float,
 
 # === CALLED EXTERNALLY ===
 
-def agent_can_move_to(x: float, y: float, radius: float,
-                     agents_dict, bullets_dict, walls_state, 
-                     exclude_id: int = None) -> bool:
-    """Check if agent can move to position without collision."""
-    if _circle_hits_wall(x, y, radius, walls_state):
-        return False
+def check_move_validity(x: float, y: float, radius: float,
+                        agents_dict, walls_state, 
+                        exclude_id: int = None) -> tuple[CollisionType, int | None]:
+    """
+    Check if move is valid. Returns collision type and obstacle ID.
     
+    Returns:
+        (CollisionType, obstacle_id_or_coord)
+        - (NONE, None) if can move
+        - (WALL, None) if wall collision
+        - (AGENT, agent_id) if agent collision
+    """
+    # Check walls
+    if _circle_hits_wall(x, y, radius, walls_state):
+        return (CollisionType.WALL, None)
+    
+    # Check agents
     for agent_id, agent in agents_dict.items():
-        if exclude_id and agent_id == exclude_id:
+        if exclude_id == agent_id:
             continue
         if _circles_overlap(x, y, radius, agent.state.x, agent.state.y, agent.state.radius):
-            return False
+            return (CollisionType.AGENT, agent_id)
     
-    for bullet in bullets_dict.values():
-        if _circles_overlap(x, y, radius, bullet.state.x, bullet.state.y, bullet.state.radius):
-            return False
-    
-    return True
-
-
-def find_agent_agent_collisions(agents_dict) -> list[tuple[int, int]]:
-    """Find all agent-agent collisions."""
-    collisions = []
-    agent_list = list(agents_dict.items())
-    
-    for i in range(len(agent_list)):
-        for j in range(i + 1, len(agent_list)):
-            id1, agent1 = agent_list[i]
-            id2, agent2 = agent_list[j]
-            
-            if _circles_overlap(agent1.state.x, agent1.state.y, agent1.state.radius,
-                               agent2.state.x, agent2.state.y, agent2.state.radius):
-                collisions.append((id1, id2))
-    
-    return collisions
+    return (CollisionType.NONE, None)
 
 
 def find_bullet_agent_collisions(bullets_dict, agents_dict) -> dict:
-    """Find all bullet-agent collisions."""
+    """Find all bullet-agent collisions (opposite team only)."""
     hits = {}
     
     for bullet_id, bullet in bullets_dict.items():
         hits[bullet_id] = []
         
         for agent_id, agent in agents_dict.items():
-            # FIX: Use bullet.state.owner_id instead of bullet.owner_id
+            # Skip owner
             if agent_id == bullet.state.owner_id:
+                continue
+            
+            # Skip same team - only opposite team collides
+            if agent.state.team == bullet.state.team:
                 continue
             
             if _circles_overlap(bullet.state.x, bullet.state.y, bullet.state.radius,

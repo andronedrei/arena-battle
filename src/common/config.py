@@ -18,4 +18,4 @@ FOV_OPACITY = 80  # Semi-transparent FOV visualization (client only)
 # === RAY CASTING ===
 RAY_STEP_DIVISOR = 2  # step_size = grid_unit / RAY_STEP_SIZE_RATIO
 
-DEFAULT_ENTITY_RADIUS = 2
+DEFAULT_ENTITY_RADIUS = 20

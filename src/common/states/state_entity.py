@@ -63,11 +63,8 @@ class StateEntity:
                            self.radius, self.gun_angle, self.team)
 
     @staticmethod
-    def pack_entities(entities: dict[int, 'StateEntity']) -> bytes | None:
-        """Pack multiple entities for network transmission."""
-        if not entities:
-            return None
-
+    def pack_entities(entities: list['StateEntity']) -> bytes:
+        """Pack multiple entities. Always returns bytes (empty if no entities)."""
         num_entities = len(entities)
         if num_entities > MAX_ENTITIES_COUNT:
             raise ValueError(f"Too many entities: {num_entities}")
@@ -75,7 +72,7 @@ class StateEntity:
         data = bytearray()
         data.extend(struct.pack('!H', num_entities))
 
-        for entity in entities.values():
+        for entity in entities:
             data.extend(entity.pack())
 
         return bytes(data)

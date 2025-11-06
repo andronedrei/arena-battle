@@ -49,11 +49,8 @@ class StateBullet:
                           self.radius, self.owner_id, self.team)
 
     @staticmethod
-    def pack_bullets(bullets: dict[int, 'StateBullet']) -> bytes | None:
-        """Pack multiple bullets."""
-        if not bullets:
-            return None
-
+    def pack_bullets(bullets: list['StateBullet']) -> bytes:
+        """Pack multiple bullets. Always returns bytes (empty if no bullets)."""
         num_bullets = len(bullets)
         if num_bullets > MAX_BULLETS_COUNT:
             raise ValueError(f"Too many bullets: {num_bullets}")
@@ -61,7 +58,7 @@ class StateBullet:
         data = bytearray()
         data.extend(struct.pack('!H', num_bullets))
 
-        for bullet in bullets.values():
+        for bullet in bullets:
             data.extend(bullet.pack())
 
         return bytes(data)

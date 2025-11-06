@@ -3,12 +3,13 @@ from client.scenes.scene import Scene
 from client.display.display_background import DisplayBackground
 from client.display.display_walls import DisplayWalls
 from client.display.display_entity import DisplayEntity
+from client.display.display_bullet import DisplayBullet
 from common.states.state_entity import StateEntity
+from common.states.state_bullet import StateBullet
 from common.states.state_walls import StateWalls
 from common.config import GRID_UNIT
 from common.config import LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT
 from collections import deque
-
 
 
 class SceneGameplay(Scene):
@@ -23,12 +24,14 @@ class SceneGameplay(Scene):
         self.display_walls: DisplayWalls = None
         self.walls_config_file = walls_config_file
 
-        # Display entities dict
+        # Display entities and bullets dicts
         self.display_entities: dict[int, DisplayEntity] = {}
+        self.display_bullets: dict[int, DisplayBullet] = {}
 
         # Network update queues (filled by network handlers)
         self.pending_entities_queue: deque[bytes] = deque()
         self.pending_walls_queue: deque[bytes] = deque()
+        self.pending_bullets_queue: deque[bytes] = deque()
         self.walls_changed: bool = False
 
     def helper_enter(self):
@@ -64,6 +67,11 @@ class SceneGameplay(Scene):
             packed_data = self.pending_entities_queue.popleft()
             self.apply_entities_update(packed_data)
 
+        # Apply all pending bullet updates
+        while self.pending_bullets_queue:
+            packed_data = self.pending_bullets_queue.popleft()
+            self.apply_bullets_update(packed_data)
+
         # Refresh FOV if walls changed this frame
         if self.walls_changed:
             self.refresh_all_entity_fov()
@@ -74,7 +82,6 @@ class SceneGameplay(Scene):
 
     # ~ override
     def helper_mouse_press(self, logical_x, logical_y, button, modifiers):
-        """Set movement direction based on click quadrant (8 directions)."""
         pass
 
     # ~ override
@@ -87,8 +94,10 @@ class SceneGameplay(Scene):
         self.display_walls = None
         self.walls_state = None
         self.display_entities.clear()
+        self.display_bullets.clear()
         self.pending_entities_queue.clear()
         self.pending_walls_queue.clear()
+        self.pending_bullets_queue.clear()
 
     # === NETWORK EVENT HANDLERS (called from network thread/callback) ===
 
@@ -107,6 +116,14 @@ class SceneGameplay(Scene):
         """
         if packed_data:
             self.pending_walls_queue.append(packed_data)
+
+    def on_bullets_update(self, packed_data: bytes):
+        """
+        Store bullet update data for processing in next update() cycle.
+        Called by network layer.
+        """
+        if packed_data:
+            self.pending_bullets_queue.append(packed_data)
 
     # === UPDATE APPLICATION METHODS (called from helper_update) ===
 
@@ -145,6 +162,41 @@ class SceneGameplay(Scene):
         for entity_id in removed_ids:
             self.display_entities[entity_id].delete()
             del self.display_entities[entity_id]
+
+    def apply_bullets_update(self, packed_data: bytes):
+        """Apply buffered bullet updates to display objects."""
+        try:
+            bullets_list = StateBullet.unpack_bullets(packed_data)
+        except ValueError as e:
+            print(f"Invalid bullet packet: {e}")
+            return
+
+        # Track which IDs we received
+        received_ids = set()
+
+        # Update displays
+        for state_bullet in bullets_list:
+            received_ids.add(state_bullet.id_bullet)
+
+            if state_bullet.id_bullet not in self.display_bullets:
+                # Create new display bullet
+                display = self.add_to_batch(
+                    DisplayBullet(
+                        batch=self.batch,
+                        bullet_state=state_bullet,
+                        group_order=2
+                    )
+                )
+                self.display_bullets[state_bullet.id_bullet] = display
+            else:
+                # Update existing display
+                self.display_bullets[state_bullet.id_bullet].sync_from_state(state_bullet)
+
+        # Remove displays for bullets that no longer exist
+        removed_ids = set(self.display_bullets.keys()) - received_ids
+        for bullet_id in removed_ids:
+            self.display_bullets[bullet_id].delete()
+            del self.display_bullets[bullet_id]
 
     def apply_walls_update(self, packed_data: bytes):
         """Apply buffered wall updates to state and display."""

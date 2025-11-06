@@ -57,11 +57,11 @@ class ClientNetwork:
         msg_type = data[0]
         payload = data[1:]
         
-        if msg_type == 0x01:  # Init (walls)
-            print(f"Received init: {len(payload)} bytes")
-        
-        elif msg_type == 0x02:  # Entities update
+        if msg_type == 0x02:  # Entities update
             self.scene.on_entities_update(payload)
         
         elif msg_type == 0x03:  # Walls update
             self.scene.on_walls_update(payload)
+        
+        elif msg_type == 0x04:  # Bullets update
+            self.scene.on_bullets_update(payload)

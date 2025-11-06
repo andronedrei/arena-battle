@@ -7,6 +7,7 @@ from quart import Quart, websocket
 import asyncio
 import time
 from common.states.state_entity import StateEntity
+from common.states.state_bullet import StateBullet
 
 
 # === NETWORK CONFIGURATION ===
@@ -18,9 +19,11 @@ DEFAULT_PORT = 8765
 SIMULATION_TICK_RATE = 60  # Hz (internal simulation frequency)
 BROADCAST_RATE = 20        # Hz (network update frequency)
 
-# Client management
 REQUIRED_CLIENTS_TO_START = 2
+
 MESSAGE_TYPE_ENTITIES = 0x02
+MESSAGE_TYPE_WALL_CHANGES = 0x03
+MESSAGE_TYPE_BULLETS = 0x04
 
 
 class NetworkManager:
@@ -142,27 +145,36 @@ class NetworkManager:
             print("[NETWORK] Game loop cancelled")
             self.game_manager.is_running = False
 
+    async def _send_to_all(self, msg: bytes):
+        """Send message to all connected clients."""
+        if self.clients:
+            await asyncio.gather(
+                *(client.send(msg) for client in self.clients),
+                return_exceptions=True
+            )
+
+
     async def _broadcast(self):
-        """
-        Broadcast current game state to all connected clients.
+        """Pack and send each message type."""
         
-        Sends only entity updates (position, angle, etc.) in binary format.
-        Uses asyncio.gather to send to all clients concurrently.
-        """
-        # Get current entity states from game manager
-        entities_dict = self.game_manager.get_entities_dict()
-        entities_bytes = StateEntity.pack_entities(entities_dict)
-        
+        # Entities - pass list of states
+        entity_states = [agent.state for agent in self.game_manager.agents.values()]
+        entities_bytes = StateEntity.pack_entities(entity_states)
         if entities_bytes:
-            # Pack with message type header
-            message = bytes([MESSAGE_TYPE_ENTITIES]) + entities_bytes
-            
-            # Send to all clients (ignore individual errors)
-            if self.clients:
-                await asyncio.gather(
-                    *(client.send(message) for client in self.clients),
-                    return_exceptions=True
-                )
+            await self._send_to_all(bytes([MESSAGE_TYPE_ENTITIES]) + entities_bytes)
+        
+        # Bullets - pass list of states
+        bullet_states = [bullet.state for bullet in self.game_manager.bullets.values()]
+        bullets_bytes = StateBullet.pack_bullets(bullet_states)
+        if bullets_bytes:
+            await self._send_to_all(bytes([MESSAGE_TYPE_BULLETS]) + bullets_bytes)
+
+        # # Walls
+        # wall_changes = self.game_manager.walls_state.pack_changes()
+        # if wall_changes:
+        #     await self._send_to_all(bytes([MESSAGE_TYPE_WALL_CHANGES]) + wall_changes)
+        #     self.game_manager.walls_state.clear_buffer()
+
     
     def run(self, host=DEFAULT_HOST, port=DEFAULT_PORT):
         """

@@ -1,21 +1,26 @@
 # External libraries
-from pyglet.image import load
-from pyglet.sprite import Sprite
 from pyglet.graphics import Batch, Group
+from pyglet.image import load
 from pyglet.shapes import Line
-from typing import Tuple
+from pyglet.sprite import Sprite
+
 
 # Internal libraries
+from client.config import BACKGROUND_FILE, GRID_COLOR, GRID_OPACITY
 from client.display.batch_object import BatchObject
-from common.config import LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT
-from common.config import GRID_UNIT
-from client.config import GRID_COLOR, GRID_OPACITY, BACKGROUND_FILE
+from common.config import (
+    GRID_UNIT,
+    LOGICAL_SCREEN_HEIGHT,
+    LOGICAL_SCREEN_WIDTH
+)
 
 
 class DisplayBackground(BatchObject):
     """
-    Renders a background image and a grid into the provided Batch,
-    using Groups for layering order in rendering
+    Renders background image and grid overlay.
+
+    Uses pyglet Groups for layer ordering: background image rendered
+    first, then grid lines on top.
     """
 
     def __init__(
@@ -25,11 +30,25 @@ class DisplayBackground(BatchObject):
         logical_width: int = LOGICAL_SCREEN_WIDTH,
         logical_height: int = LOGICAL_SCREEN_HEIGHT,
         grid_unit: int = GRID_UNIT,
-        grid_color: Tuple[int, int, int] = GRID_COLOR,
+        grid_color: tuple[int, int, int] = GRID_COLOR,
         grid_opacity: int = GRID_OPACITY,
         show_grid: bool = True,
-        first_group_order: int = 0,  # bg img at 0, grids at group order 1
-    ):
+        first_group_order: int = 0,
+    ) -> None:
+        """
+        Initialize background display.
+
+        Args:
+            batch: Pyglet batch for rendering.
+            background_file: Path to background image file.
+            logical_width: World width in pixels.
+            logical_height: World height in pixels.
+            grid_unit: Grid cell size in pixels.
+            grid_color: RGB color for grid lines.
+            grid_opacity: Grid line opacity (0-255).
+            show_grid: Whether to render the grid initially.
+            first_group_order: Rendering order for background.
+        """
         super().__init__(batch)
         self.logical_w = logical_width
         self.logical_h = logical_height
@@ -37,10 +56,9 @@ class DisplayBackground(BatchObject):
         self.grid_color = grid_color
         self.grid_alpha = grid_opacity
 
-        self.bg_sprite = None
+        self.bg_sprite: Sprite | None = None
         self.grid_lines: list[Line] = []
 
-        # Draw order: background first, then grid
         self.bg_group = Group(first_group_order)
         self.grid_group = Group(first_group_order + 1)
 
@@ -48,33 +66,46 @@ class DisplayBackground(BatchObject):
         if show_grid:
             self.build_grid()
 
-    def set_background(self, path: str):
-        """ Load/replace background Sprite and scale to logical size """
+    # Background
+
+    def set_background(self, path: str) -> None:
+        """
+        Load and set background image, scaled to logical dimensions.
+
+        Args:
+            path: Path to background image file.
+        """
         if self.bg_sprite:
             self.bg_sprite.delete()
-            # Remove from tracked sub-objects
-            if self.bg_sprite in self._sub_objects:
-                self._sub_objects.remove(self.bg_sprite)
+            if self.bg_sprite in self.sub_objects:
+                self.sub_objects.remove(self.bg_sprite)
 
         img = load(path)
         self.bg_sprite = self.register_sub_object(
             Sprite(
-                img, x=0, y=0,
+                img,
+                x=0,
+                y=0,
                 batch=self.batch,
-                group=self.bg_group
+                group=self.bg_group,
             )
         )
         self.bg_sprite.scale_x = self.logical_w / img.width
         self.bg_sprite.scale_y = self.logical_h / img.height
 
-    def build_grid(self):
-        """ Create a spaced grid using pyglet.shapes.Line objects """
-        # Clear any existing lines
+    # Grid
+
+    def build_grid(self) -> None:
+        """
+        Create grid visualization from Line objects.
+
+        Generates vertical and horizontal lines spaced by grid_unit.
+        """
+        # Clear existing grid
         for ln in self.grid_lines:
             ln.delete()
-            # Remove from tracked sub-objects
-            if ln in self._sub_objects:
-                self._sub_objects.remove(ln)
+            if ln in self.sub_objects:
+                self.sub_objects.remove(ln)
         self.grid_lines.clear()
 
         cols = int(self.logical_w // self.cell_size)
@@ -85,10 +116,13 @@ class DisplayBackground(BatchObject):
             x = c * self.cell_size
             ln = self.register_sub_object(
                 Line(
-                    x, 0, x, self.logical_h,
+                    x,
+                    0,
+                    x,
+                    self.logical_h,
                     color=self.grid_color,
                     batch=self.batch,
-                    group=self.grid_group
+                    group=self.grid_group,
                 )
             )
             ln.opacity = self.grid_alpha
@@ -99,22 +133,32 @@ class DisplayBackground(BatchObject):
             y = r * self.cell_size
             ln = self.register_sub_object(
                 Line(
-                    0, y, self.logical_w, y,
+                    0,
+                    y,
+                    self.logical_w,
+                    y,
                     color=self.grid_color,
                     batch=self.batch,
-                    group=self.grid_group
+                    group=self.grid_group,
                 )
             )
             ln.opacity = self.grid_alpha
             self.grid_lines.append(ln)
 
-    def toggle_grid(self, visible: bool):
-        """ Show or hide grid lines """
+    def toggle_grid(self, visible: bool) -> None:
+        """
+        Show or hide grid lines.
+
+        Args:
+            visible: True to show grid, False to hide.
+        """
         for ln in self.grid_lines:
             ln.visible = visible
 
-    def delete(self):
-        """ Cleanup background and grid resources from the batch """
+    # Cleanup
+
+    def delete(self) -> None:
+        """Clean up background and grid resources."""
         self.bg_sprite = None
         self.grid_lines.clear()
-        super().delete()  # Auto-cleans all registered sub-objects
+        super().delete()

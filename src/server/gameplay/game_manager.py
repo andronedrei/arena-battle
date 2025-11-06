@@ -1,151 +1,149 @@
-# server/gameplay/game_manager.py
-
+# Internal libraries
+from common.config import (
+    GRID_UNIT,
+    LOGICAL_SCREEN_HEIGHT,
+    LOGICAL_SCREEN_WIDTH,
+)
+from common.states.state_entity import Team
 from common.states.state_walls import StateWalls
-from common.states.state_entity import StateEntity, Team
+from server.config import (
+    DETECTION_INTERVAL,
+    TEAM_A_SPAWNS,
+    TEAM_B_SPAWNS,
+)
 from server.gameplay.agent import Agent
 from server.gameplay.bullet import Bullet
-from server.gameplay.collision import find_bullet_agent_collisions, find_bullet_wall_collisions
-from server.strategy.random_strategy import RandomStrategy
-
-
-# === AGENT CONFIGURATION ===
-DETECTION_INTERVAL = 5
-
-
-# Test agent spawn positions
-TEAM_A_SPAWN = (100.0, 100.0)
-TEAM_B_SPAWN = (700.0, 500.0)
-
-
-# Entity properties
-DEFAULT_RADIUS = 23.0
-DEFAULT_GUN_ROT_SPEED = 2 * 3.14 / 5
+from server.gameplay.collision import (
+    find_bullet_agent_collisions,
+    find_bullet_wall_collisions,
+)
 
 
 class GameManager:
     """
     Server-side game simulation and state management.
-    
-    Responsibilities:
-    - Update agent logic (movement, rotation, etc.)
-    - Manage enemy detection at intervals
-    - Handle bullet collisions
-    - Expose entity states for network transmission
+
+    Responsibilities: update agent logic, manage enemy detection, handle
+    bullet collisions, and expose entity states for network transmission.
     """
-    
-    def __init__(self, walls_state: StateWalls):
+
+    # Initialization
+
+    def __init__(self, wall_config_file: str) -> None:
         """
         Initialize game manager with world state.
-        
+
         Args:
-            walls_state: StateWalls instance containing collision geometry
+            wall_config_file: Path to walls configuration file.
         """
-        self.walls_state = walls_state
+        self.walls_state = StateWalls(
+            grid_unit=GRID_UNIT,
+            world_width=LOGICAL_SCREEN_WIDTH,
+            world_height=LOGICAL_SCREEN_HEIGHT,
+        )
+        self.walls_state.load_from_file(wall_config_file)
+
         self.agents: dict[int, Agent] = {}
         self.bullets: dict[int, Bullet] = {}
-        
-        # Simulation state
         self.tick_count = 0
         self.is_running = False
 
-    def spawn_test_agents(self):
-        """Create two test agents."""
-        # Team A agent - left side, gun_angle auto-set to 0
-        agent_a = Agent(
-            walls_state=self.walls_state,
-            agents_dict=self.agents,
-            bullets_dict=self.bullets,
-            strategy=RandomStrategy(),
-            x=TEAM_A_SPAWN[0],
-            y=TEAM_A_SPAWN[1],
-            team=Team.TEAM_A,
-            health=100.0,
-            damage=25.0,
-            speed=50.0,
-            shoot_duration=1
-        )
-        
-        # Team B agent - right side, gun_angle auto-set to π
-        agent_b = Agent(
-            walls_state=self.walls_state,
-            agents_dict=self.agents,
-            bullets_dict=self.bullets,
-            strategy=RandomStrategy(),
-            x=TEAM_B_SPAWN[0],
-            y=TEAM_B_SPAWN[1],
-            team=Team.TEAM_B,
-            health=100.0,
-            damage=25.0,
-            speed=50.0,
-            shoot_duration=1
-        )
-        
-        self.agents[agent_a.state.id_entity] = agent_a
-        self.agents[agent_b.state.id_entity] = agent_b
-        
-        print(f"[GAME] Spawned {len(self.agents)} agents")
+    # Agent management
 
-    # server/gameplay/game_manager.py
+    def spawn_test_agents(self) -> None:
+        """Spawn agents with assigned strategies from configuration."""
 
-    def update(self, dt: float):
-        """Execute single simulation tick."""
-        
+        # Spawn Team A agents
+        for x, y, strategy_class in TEAM_A_SPAWNS:
+            agent = Agent(
+                walls_state=self.walls_state,
+                agents_dict=self.agents,
+                bullets_dict=self.bullets,
+                strategy=strategy_class(),
+                x=x,
+                y=y,
+                team=Team.TEAM_A,
+            )
+            self.agents[agent.state.id_entity] = agent
+
+        # Spawn Team B agents
+        for x, y, strategy_class in TEAM_B_SPAWNS:
+            agent = Agent(
+                walls_state=self.walls_state,
+                agents_dict=self.agents,
+                bullets_dict=self.bullets,
+                strategy=strategy_class(),
+                x=x,
+                y=y,
+                team=Team.TEAM_B,
+            )
+            self.agents[agent.state.id_entity] = agent
+
+    # Simulation
+
+    def update(self, dt: float) -> None:
+        """
+        Execute single simulation tick.
+
+        Updates bullets, checks collisions, runs agent strategies, and
+        performs periodic detection. Cleans up expired entities.
+
+        Args:
+            dt: Delta time in seconds.
+        """
         # Update bullets
         for bullet in self.bullets.values():
             bullet.update(dt)
 
         # Clean up expired bullets
-        expired = [bid for bid, bullet in self.bullets.items() if not bullet.is_alive()]
-        for bid in expired:
+        expired_bullets = [
+            bid for bid, bullet in self.bullets.items()
+            if not bullet.is_alive()
+        ]
+        for bid in expired_bullets:
             del self.bullets[bid]
 
-        # Update all agents strategy
+        # Update all agents
         for agent in self.agents.values():
             agent.update_strategy(dt)
 
-        # Periodic detection
+        # Periodic enemy detection
         if self.tick_count % DETECTION_INTERVAL == 0:
             for agent in self.agents.values():
                 agent.detect_enemies()
 
-        print(f"[TICK {self.tick_count}] Bullets before collision: {len(self.bullets)}")
-
-        # Check bullet collisions with agents
-        bullet_hits = find_bullet_agent_collisions(self.bullets, self.agents)
+        # Check bullet-agent collisions
+        bullet_hits = find_bullet_agent_collisions(
+            self.bullets, self.agents
+        )
         for bullet_id, hit_agents in bullet_hits.items():
-            if len(hit_agents) == 0:
+            if not hit_agents or bullet_id not in self.bullets:
                 continue
-            
-            if bullet_id not in self.bullets:
-                continue
-            
+
             bullet = self.bullets[bullet_id]
-            
             for agent_id in hit_agents:
                 if agent_id in self.agents:
-                    agent = self.agents[agent_id]
-                    agent.take_damage(bullet.damage)
-                    print(f"[HIT] Agent {agent_id} health: {agent.health:.1f}")
-            
-            if bullet_id in self.bullets:
-                del self.bullets[bullet_id]
+                    self.agents[agent_id].take_damage(bullet.damage)
 
-        # Check bullet collisions with walls
-        destroyed_bullets = find_bullet_wall_collisions(self.bullets, self.walls_state)
+            del self.bullets[bullet_id]
+
+        # Check bullet-wall collisions
+        destroyed_bullets = find_bullet_wall_collisions(
+            self.bullets, self.walls_state
+        )
         for bullet_id in destroyed_bullets:
             if bullet_id in self.bullets:
                 del self.bullets[bullet_id]
 
-        # Remove dead agents - clean up references
-        dead_agents = [aid for aid, agent in self.agents.items() if not agent.is_alive()]
+        # Remove dead agents and clean up references
+        dead_agents = [
+            aid for aid, agent in self.agents.items()
+            if not agent.is_alive()
+        ]
         for aid in dead_agents:
-            print(f"[DEAD] Agent {aid} eliminated")
-            # Clear from other agents' detected_enemies first
+            # Remove from other agents' detection lists
             for other_agent in self.agents.values():
                 other_agent.detected_enemies.discard(aid)
             del self.agents[aid]
 
-        print(f"[TICK {self.tick_count}] Bullets after collision: {len(self.bullets)}\n")
-        
         self.tick_count += 1
-

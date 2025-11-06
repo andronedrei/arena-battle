@@ -1,38 +1,42 @@
+# External libraries
 from pyglet.app import run
+
+
+# Internal libraries
+from client.network.client_network import ClientNetwork
 from client.scenes.logical_window import LogicalWindow
 from client.scenes.scene_gameplay import SceneGameplay
-from client.network.client_network import ClientNetwork
-
 from common.config import WALL_CONFIG
 
 
-def main():
-    # Create window
-    my_window = LogicalWindow()
+def main() -> None:
+    """
+    Initialize and run the game client.
 
-    # Create the scene
+    Sets up the window, scene, and network connection, then starts
+    the pyglet application loop. Ensures network cleanup on exit.
+    """
+    # Create window and scene
+    window = LogicalWindow()
     scene_gameplay = SceneGameplay(WALL_CONFIG)
 
-    # Add scene to window
-    my_window.scene_manager.add_scene("gameplay", scene_gameplay)
-    
+    # Register and switch to gameplay scene
+    window.scene_manager.add_scene("gameplay", scene_gameplay)
     try:
-        my_window.scene_manager.switch_to("gameplay")
-    except ValueError as e:
-        print(f"Error: {e}")
+        window.scene_manager.switch_to("gameplay")
+    except ValueError:
+        return
 
-    # Start network client (background thread)
-    network = ClientNetwork(scene_gameplay, uri="ws://localhost:8765/ws")
+    # Start network client in background thread
+    network = ClientNetwork(scene_gameplay)
     network.start()
 
-    # Run app
+    # Run application and ensure cleanup
     try:
         run()
     finally:
         network.stop()
 
 
-
 if __name__ == "__main__":
     main()
-

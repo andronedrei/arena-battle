@@ -1,217 +1,259 @@
-# gameplay_scene.py
-from client.scenes.scene import Scene
-from client.display.display_background import DisplayBackground
-from client.display.display_walls import DisplayWalls
-from client.display.display_entity import DisplayEntity
-from client.display.display_bullet import DisplayBullet
-from common.states.state_entity import StateEntity
-from common.states.state_bullet import StateBullet
-from common.states.state_walls import StateWalls
-from common.config import GRID_UNIT
-from common.config import LOGICAL_SCREEN_WIDTH, LOGICAL_SCREEN_HEIGHT
+# External libraries
 from collections import deque
+
+# Internal libraries
+from client.display.display_background import DisplayBackground
+from client.display.display_bullet import DisplayBullet
+from client.display.display_entity import DisplayEntity
+from client.display.display_walls import DisplayWalls
+from client.scenes.scene import Scene
+from common.config import (
+    GRID_UNIT,
+    LOGICAL_SCREEN_HEIGHT,
+    LOGICAL_SCREEN_WIDTH,
+)
+from common.states.state_bullet import StateBullet
+from common.states.state_entity import StateEntity
 
 
 class SceneGameplay(Scene):
     """
     Client-side gameplay scene.
-    Displays game state received from server.
+
+    Displays game state received from the server. Manages display objects
+    for entities, bullets, and walls. Processes network updates
+    asynchronously through queues and applies them during the update cycle.
     """
 
-    def __init__(self, walls_config_file):
+    def __init__(self, walls_config_file: str) -> None:
+        """
+        Initialize the gameplay scene.
+
+        Args:
+            walls_config_file: Path to the walls configuration file.
+        """
         super().__init__()
-        self.display_bg = None
-        self.display_walls: DisplayWalls = None
         self.walls_config_file = walls_config_file
 
-        # Display entities and bullets dicts
+        # Display objects
+        self.display_bg: DisplayBackground | None = None
+        self.display_walls: DisplayWalls | None = None
+
+        # Entity and bullet displays
         self.display_entities: dict[int, DisplayEntity] = {}
         self.display_bullets: dict[int, DisplayBullet] = {}
 
-        # Network update queues (filled by network handlers)
+        # Network update queues (filled by network layer)
         self.pending_entities_queue: deque[bytes] = deque()
         self.pending_walls_queue: deque[bytes] = deque()
         self.pending_bullets_queue: deque[bytes] = deque()
         self.walls_changed: bool = False
 
-    def helper_enter(self):
-        """Create background, walls, and initial entities."""
-        # Background
+    # Lifecycle
+
+    def helper_enter(self) -> None:
+        """Initialize background, walls, and prepare for entity updates."""
         self.display_bg = self.add_to_batch(
             DisplayBackground(batch=self.batch)
         )
 
-        # Walls
         self.display_walls = self.add_to_batch(
             DisplayWalls(
                 batch=self.batch,
                 grid_unit=GRID_UNIT,
                 world_width=LOGICAL_SCREEN_WIDTH,
                 world_height=LOGICAL_SCREEN_HEIGHT,
-                walls_config_file=self.walls_config_file
+                walls_config_file=self.walls_config_file,
             )
         )
 
-    # ~ override
-    def helper_update(self, dt):
-        """Main update loop - apply all pending network updates."""
-        
-        # Apply all pending wall updates
+    def helper_update(self, dt: float) -> None:
+        """
+        Process all pending network updates and refresh display state.
+
+        Updates are processed in order: walls, entities, bullets. FOV is
+        refreshed if walls changed to maintain visibility accuracy.
+
+        Args:
+            dt: Delta time since last update in seconds.
+        """
+        # Process wall updates
         while self.pending_walls_queue:
-            packed_data = self.pending_walls_queue.popleft()
-            self.apply_walls_update(packed_data)
+            self.apply_walls_update(self.pending_walls_queue.popleft())
             self.walls_changed = True
 
-        # Apply all pending entity updates
+        # Process entity updates
         while self.pending_entities_queue:
-            packed_data = self.pending_entities_queue.popleft()
-            self.apply_entities_update(packed_data)
+            self.apply_entities_update(
+                self.pending_entities_queue.popleft()
+            )
 
-        # Apply all pending bullet updates
+        # Process bullet updates
         while self.pending_bullets_queue:
-            packed_data = self.pending_bullets_queue.popleft()
-            self.apply_bullets_update(packed_data)
+            self.apply_bullets_update(self.pending_bullets_queue.popleft())
 
-        # Refresh FOV if walls changed this frame
+        # Refresh FOV visualization if walls changed
         if self.walls_changed:
             self.refresh_all_entity_fov()
             self.walls_changed = False
 
-        # Clean up removed objects
         self.cleanup_removed_objects()
 
-    # ~ override
-    def helper_mouse_press(self, logical_x, logical_y, button, modifiers):
+    def helper_mouse_press(
+        self, logical_x: float, logical_y: float, button: int, modifiers: int
+    ) -> None:
+        """Handle mouse input (placeholder for future implementation)."""
         pass
 
-    # ~ override
-    def helper_leave(self):
-        """Cleanup all batch objects automatically."""
+    def helper_leave(self) -> None:
+        """Clean up all display objects and queues."""
         super().helper_leave()
 
-        # Reset references
         self.display_bg = None
         self.display_walls = None
-        self.walls_state = None
         self.display_entities.clear()
         self.display_bullets.clear()
         self.pending_entities_queue.clear()
         self.pending_walls_queue.clear()
         self.pending_bullets_queue.clear()
 
-    # === NETWORK EVENT HANDLERS (called from network thread/callback) ===
+    # Network event handlers
 
-    def on_entities_update(self, packed_data: bytes):
+    def on_entities_update(self, packed_data: bytes) -> None:
         """
-        Store entity update data for processing in next update() cycle.
-        Called by network layer.
+        Queue entity state update from network layer.
+
+        Args:
+            packed_data: Serialized entity state data.
         """
         if packed_data:
             self.pending_entities_queue.append(packed_data)
 
-    def on_walls_update(self, packed_data: bytes):
+    def on_walls_update(self, packed_data: bytes) -> None:
         """
-        Store wall update data for processing in next update() cycle.
-        Called by network layer.
+        Queue walls state update from network layer.
+
+        Args:
+            packed_data: Serialized walls state data.
         """
         if packed_data:
             self.pending_walls_queue.append(packed_data)
 
-    def on_bullets_update(self, packed_data: bytes):
+    def on_bullets_update(self, packed_data: bytes) -> None:
         """
-        Store bullet update data for processing in next update() cycle.
-        Called by network layer.
+        Queue bullets state update from network layer.
+
+        Args:
+            packed_data: Serialized bullets state data.
         """
         if packed_data:
             self.pending_bullets_queue.append(packed_data)
 
-    # === UPDATE APPLICATION METHODS (called from helper_update) ===
+    # Update application
 
-    def apply_entities_update(self, packed_data: bytes):
-        """Apply buffered entity updates to display objects."""
+    def apply_entities_update(self, packed_data: bytes) -> None:
+        """
+        Create or update display entities from state packet.
+
+        Creates new DisplayEntity objects for entities that don't exist yet,
+        updates existing ones, and removes displays for deleted entities.
+
+        Args:
+            packed_data: Serialized entity state data.
+        """
+        from client.config import TEAM_RENDER_ORDERS
+
         try:
             entities_list = StateEntity.unpack_entities(packed_data)
-        except ValueError as e:
-            print(f"Invalid entity packet: {e}")
+        except ValueError:
             return
 
-        # Track which IDs we received
-        received_ids = set()
+        received_ids = {
+            state_entity.id_entity for state_entity in entities_list
+        }
 
-        # Update displays
+        # Update or create displays
         for state_entity in entities_list:
-            received_ids.add(state_entity.id_entity)
-
             if state_entity.id_entity not in self.display_entities:
-                # Create new display entity
+                # Get render order based on team
+                group_order = TEAM_RENDER_ORDERS.get(
+                    state_entity.team, 2
+                )
+
                 display = self.add_to_batch(
                     DisplayEntity(
                         batch=self.batch,
                         entity_state=state_entity,
                         walls_state=self.display_walls.state,
-                        group_order=3
+                        group_order=group_order,
                     )
                 )
                 self.display_entities[state_entity.id_entity] = display
             else:
-                # Update existing display
-                self.display_entities[state_entity.id_entity].sync_from_state(state_entity)
+                self.display_entities[
+                    state_entity.id_entity
+                ].sync_from_state(state_entity)
 
-        # Remove displays for entities that no longer exist
+        # Remove displays for deleted entities
         removed_ids = set(self.display_entities.keys()) - received_ids
         for entity_id in removed_ids:
             self.display_entities[entity_id].delete()
             del self.display_entities[entity_id]
 
-    def apply_bullets_update(self, packed_data: bytes):
-        """Apply buffered bullet updates to display objects."""
+    def apply_bullets_update(self, packed_data: bytes) -> None:
+        """
+        Create or update display bullets from state packet.
+
+        Creates new DisplayBullet objects for bullets that don't exist yet,
+        updates existing ones, and removes displays for deleted bullets.
+
+        Args:
+            packed_data: Serialized bullet state data.
+        """
         try:
             bullets_list = StateBullet.unpack_bullets(packed_data)
-        except ValueError as e:
-            print(f"Invalid bullet packet: {e}")
+        except ValueError:
             return
 
-        # Track which IDs we received
-        received_ids = set()
+        received_ids = {
+            state_bullet.id_bullet for state_bullet in bullets_list
+        }
 
-        # Update displays
+        # Update or create displays
         for state_bullet in bullets_list:
-            received_ids.add(state_bullet.id_bullet)
-
             if state_bullet.id_bullet not in self.display_bullets:
-                # Create new display bullet
                 display = self.add_to_batch(
                     DisplayBullet(
                         batch=self.batch,
                         bullet_state=state_bullet,
-                        group_order=2
+                        group_order=2,
                     )
                 )
                 self.display_bullets[state_bullet.id_bullet] = display
             else:
-                # Update existing display
-                self.display_bullets[state_bullet.id_bullet].sync_from_state(state_bullet)
+                self.display_bullets[
+                    state_bullet.id_bullet
+                ].sync_from_state(state_bullet)
 
-        # Remove displays for bullets that no longer exist
+        # Remove displays for deleted bullets
         removed_ids = set(self.display_bullets.keys()) - received_ids
         for bullet_id in removed_ids:
             self.display_bullets[bullet_id].delete()
             del self.display_bullets[bullet_id]
 
-    def apply_walls_update(self, packed_data: bytes):
-        """Apply buffered wall updates to state and display."""
-        try:
-            # Apply changes to walls_state
-            added_cells, removed_cells = self.walls_state.unpack_changes(packed_data)
-  
-            # Update display
-            self.display_walls.unpack_changes(packed_data)
+    def apply_walls_update(self, packed_data: bytes) -> None:
+        """
+        Update walls display from state packet.
 
-        except ValueError as e:
-            print(f"Invalid wall packet: {e}")
+        Args:
+            packed_data: Serialized walls state data.
+        """
+        try:
+            self.display_walls.unpack_changes(packed_data)
+        except ValueError:
             return
 
-    def refresh_all_entity_fov(self):
-        """Refresh FOV visualization for all entities (call when walls change)."""
+    def refresh_all_entity_fov(self) -> None:
+        """Refresh field-of-view visualization for all entities."""
         for display_entity in self.display_entities.values():
             display_entity.update_fov_polygon()

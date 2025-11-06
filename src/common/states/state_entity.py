@@ -1,21 +1,20 @@
-"""
-state_entity.py
-Pure entity state for network transmission only.
-"""
-
-from enum import IntEnum
+# External libraries
 import struct
-from common.config import DEFAULT_ENTITY_RADIUS
+from enum import IntEnum
 
 
-# Network protocol constants
-MAX_ENTITY_ID = 65535
-MAX_ENTITIES_COUNT = 65535
-ENTITY_PACKED_SIZE = 19  # 2+4+4+4+4+1
+# Internal libraries
+from common.config import (
+    DEFAULT_ENTITY_RADIUS,
+    MAX_ENTITY_ID,
+    MAX_ENTITIES_COUNT,
+    ENTITY_PACKED_SIZE,
+)
 
 
 class Team(IntEnum):
     """Team/ownership identifiers for entities."""
+
     NEUTRAL = 0
     TEAM_A = 1
     TEAM_B = 2
@@ -23,14 +22,32 @@ class Team(IntEnum):
 
 class StateEntity:
     """
-    Pure entity data for network transmission.
-    Stores position, radius, team, gun angle for rendering.
+    Pure entity state for network transmission.
+
+    Stores position, radius, team, and gun angle for rendering.
+    Does not contain game logic, only serializable state.
     """
 
-    def __init__(self, id_entity: int, x: float, y: float,
-                 radius: float = DEFAULT_ENTITY_RADIUS,
-                 team: int = Team.NEUTRAL, gun_angle: float = 0.0):
-        """Constructor."""
+    def __init__(
+        self,
+        id_entity: int,
+        x: float,
+        y: float,
+        radius: float = DEFAULT_ENTITY_RADIUS,
+        team: int = Team.NEUTRAL,
+        gun_angle: float = 0.0,
+    ) -> None:
+        """
+        Initialize entity state.
+
+        Args:
+            id_entity: Unique entity identifier.
+            x: X position in pixels.
+            y: Y position in pixels.
+            radius: Collision radius in pixels.
+            team: Team affiliation (Team enum value).
+            gun_angle: Gun angle in radians.
+        """
         self.id_entity = id_entity
         self.x = x
         self.y = y
@@ -38,39 +55,73 @@ class StateEntity:
         self.team = team
         self.gun_angle = gun_angle
 
-    def set_position(self, x: float, y: float):
-        """Set entity position."""
+    # State modification
+
+    def set_position(self, x: float, y: float) -> None:
+        """
+        Update entity position.
+
+        Args:
+            x: New X position in pixels.
+            y: New Y position in pixels.
+        """
         self.x = x
         self.y = y
 
-    def set_gun_angle(self, angle: float):
-        """Set gun angle in radians."""
+    def set_gun_angle(self, angle: float) -> None:
+        """
+        Update gun angle.
+
+        Args:
+            angle: New angle in radians.
+        """
         self.gun_angle = angle
+
+    # Serialization
 
     def pack(self) -> bytes:
         """
-        Pack entity state into binary format.
+        Serialize entity to binary format.
 
-        Format:
-        [2 bytes: id (uint16)]
-        [4 bytes: x (float)]
-        [4 bytes: y (float)]
-        [4 bytes: radius (float)]
-        [4 bytes: gun_angle (float)]
-        [1 byte: team (uint8)]
+        Format: [id:uint16][x:float][y:float][radius:float]
+                [gun_angle:float][team:uint8]
+
+        Returns:
+            Packed binary data (19 bytes).
         """
-        return struct.pack('!HffffB', self.id_entity, self.x, self.y,
-                           self.radius, self.gun_angle, self.team)
+        return struct.pack(
+            "!HffffB",
+            self.id_entity,
+            self.x,
+            self.y,
+            self.radius,
+            self.gun_angle,
+            self.team,
+        )
 
     @staticmethod
-    def pack_entities(entities: list['StateEntity']) -> bytes:
-        """Pack multiple entities. Always returns bytes (empty if no entities)."""
+    def pack_entities(entities: list["StateEntity"]) -> bytes:
+        """
+        Serialize multiple entities.
+
+        Args:
+            entities: List of StateEntity objects to pack.
+
+        Returns:
+            Packed binary data with entity count header.
+
+        Raises:
+            ValueError: If too many entities to fit in packet.
+        """
         num_entities = len(entities)
         if num_entities > MAX_ENTITIES_COUNT:
-            raise ValueError(f"Too many entities: {num_entities}")
+            raise ValueError(
+                f"Too many entities: {num_entities} "
+                f"(max {MAX_ENTITIES_COUNT})"
+            )
 
         data = bytearray()
-        data.extend(struct.pack('!H', num_entities))
+        data.extend(struct.pack("!H", num_entities))
 
         for entity in entities:
             data.extend(entity.pack())
@@ -78,26 +129,48 @@ class StateEntity:
         return bytes(data)
 
     @staticmethod
-    def unpack_entities(data: bytes) -> list['StateEntity']:
-        """Unpack entities from network data."""
+    def unpack_entities(data: bytes) -> list["StateEntity"]:
+        """
+        Deserialize entities from binary data.
+
+        Args:
+            data: Packed binary data from network.
+
+        Returns:
+            List of StateEntity objects.
+
+        Raises:
+            ValueError: If packet format or data is invalid.
+        """
         if len(data) < 2:
             return []
 
         offset = 0
-        num_entities = struct.unpack('!H', data[offset:offset+2])[0]
+        num_entities = struct.unpack("!H", data[offset: offset + 2])[0]
         offset += 2
 
         expected_size = 2 + (num_entities * ENTITY_PACKED_SIZE)
         if len(data) != expected_size:
-            raise ValueError(f"Invalid packet size")
+            raise ValueError(
+                f"Invalid packet size: expected {expected_size}, "
+                f"got {len(data)}"
+            )
 
         entities = []
         for _ in range(num_entities):
-            id_entity, x, y, radius, gun_angle, team = struct.unpack(
-                '!HffffB', data[offset:offset + ENTITY_PACKED_SIZE]
+            (
+                id_entity,
+                x,
+                y,
+                radius,
+                gun_angle,
+                team,
+            ) = struct.unpack(
+                "!HffffB", data[offset: offset + ENTITY_PACKED_SIZE]
             )
             offset += ENTITY_PACKED_SIZE
 
+            # Validate unpacked values
             if radius <= 0:
                 raise ValueError(f"Invalid radius: {radius}")
             if not (0 <= id_entity <= MAX_ENTITY_ID):
@@ -110,15 +183,19 @@ class StateEntity:
 
         return entities
 
+    # Representation
+
     def __repr__(self) -> str:
-        """String representation."""
+        """Return a string representation of the entity."""
         team_names = {
             Team.NEUTRAL: "neutral",
             Team.TEAM_A: "team_A",
-            Team.TEAM_B: "team_B"
+            Team.TEAM_B: "team_B",
         }
         team_name = team_names.get(self.team, f"team_{self.team}")
         return (
-            f"StateEntity(id={self.id_entity}, pos=({self.x:.1f}, {self.y:.1f}), "
-            f"r={self.radius}, angle={self.gun_angle:.2f}, team={team_name})"
+            f"StateEntity(id={self.id_entity}, "
+            f"pos=({self.x:.1f}, {self.y:.1f}), "
+            f"r={self.radius}, angle={self.gun_angle:.2f}, "
+            f"team={team_name})"
         )

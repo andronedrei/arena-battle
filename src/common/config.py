@@ -1,21 +1,79 @@
-'''
-CAN MODIFY FOR NOW (PROBABLY)
-'''
+"""
+Shared configuration between client and server.
 
-WALL_CONFIG = "common/wall_configs/walls_config1.txt"
+Organized into two categories:
+1. TUNABLE - Safe to modify for gameplay tweaking and customization
+2. CRITICAL - Protocol/network constants; changes break client-server sync
+"""
 
+import math
+from enum import IntEnum
+
+
+class Direction(IntEnum):
+    """Eight-directional movement."""
+
+    NORTH = 0
+    NORTH_EAST = 1
+    EAST = 2
+    SOUTH_EAST = 3
+    SOUTH = 4
+    SOUTH_WEST = 5
+    WEST = 6
+    NORTH_WEST = 7
+
+
+# ============================================================================
+# TUNABLE PARAMETERS - Safe to modify for balance and customization
+# ============================================================================
+
+# World geometry
 LOGICAL_SCREEN_WIDTH = 1280
 LOGICAL_SCREEN_HEIGHT = 720
 GRID_UNIT = 5
-FPS = 10
 
-# === FOV CONSTANTS ===
-FOV_RATIO = 50.0  # FOV radius = entity.radius * FOV_RATIO
-FOV_OPENING = 3.14159 / 3  # 60 degrees in radians (use math.pi in imports)
-FOV_NUM_RAYS = 50  # Number of rays to cast (more = smoother)
-FOV_OPACITY = 80  # Semi-transparent FOV visualization (client only)
+# Timing
+SIMULATION_TICK_RATE = 30  # Server simulation rate (Hz)
+NETWORK_UPDATE_RATE = 15  # Network broadcast rate (Hz), also FPS in client
 
-# === RAY CASTING ===
-RAY_STEP_DIVISOR = 2  # step_size = grid_unit / RAY_STEP_SIZE_RATIO
-
+# Entity properties
 DEFAULT_ENTITY_RADIUS = 20
+
+# Vision system (field-of-view ray casting)
+FOV_RATIO = 50.0  # FOV radius = entity.radius * FOV_RATIO
+FOV_OPENING = math.pi / 3  # FOV cone angle in radians (60 degrees)
+FOV_NUM_RAYS = 50  # Ray-cast samples (more = smoother detection)
+FOV_OPACITY = 80  # FOV polygon transparency (0-255, client only)
+RAY_STEP_DIVISOR = 2  # Ray casting precision (grid_unit / divisor)
+
+# Asset files
+WALL_CONFIG = "common/wall_configs/walls_config1.txt"
+
+
+# ============================================================================
+# CRITICAL PARAMETERS - Do not modify; breaks protocol synchronization
+# ============================================================================
+
+# Network message type codes (must match exactly between client and server)
+MSG_TYPE_ENTITIES = 0x02
+MSG_TYPE_WALLS = 0x03
+MSG_TYPE_BULLETS = 0x04
+
+# Network configuration (server connection)
+WEBSOCKET_ROUTE = "/ws"
+NETWORK_HOST = "localhost"
+NETWORK_PORT = 8765
+NETWORK_SERVER_URI = f"ws://{NETWORK_HOST}:{NETWORK_PORT}{WEBSOCKET_ROUTE}"
+
+# Protocol limits (must not exceed these values)
+MAX_ENTITY_ID = 65535
+MAX_ENTITIES_COUNT = 65535
+MAX_BULLET_ID = 65535
+MAX_BULLETS_COUNT = 65535
+MAX_WALL_CHANGES = 65535
+MAX_CELL_COORDINATE = 65535
+
+# Binary packet structure sizes (in bytes, must not change)
+ENTITY_PACKED_SIZE = 19  # 2+4+4+4+4+1
+BULLET_PACKED_SIZE = 17  # 2+4+4+4+2+1
+WALL_CHANGE_PACKED_SIZE = 5  # 1+2+2

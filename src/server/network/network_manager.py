@@ -5,11 +5,15 @@ import time
 from quart import Quart, websocket
 
 
+import logging
+
 # Internal libraries
 from common.config import (
     NETWORK_UPDATE_RATE,
     MSG_TYPE_BULLETS,
     MSG_TYPE_ENTITIES,
+    MSG_TYPE_CLIENT_READY,
+    MSG_TYPE_START_GAME,
     NETWORK_HOST,
     NETWORK_PORT,
     SIMULATION_TICK_RATE,
@@ -18,6 +22,9 @@ from common.config import (
 from common.states.state_bullet import StateBullet
 from common.states.state_entity import StateEntity
 from server.config import REQUIRED_CLIENTS_TO_START
+from common.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class NetworkManager:
@@ -37,8 +44,8 @@ class NetworkManager:
         """
         self.app = Quart(__name__)
         self.game_manager = game_manager
-
-        self.clients: set = set()
+        # Map websocket -> ready_bool
+        self.clients: dict = {}
         self.required_clients = REQUIRED_CLIENTS_TO_START
         self.game_task: asyncio.Task | None = None
 
@@ -57,24 +64,75 @@ class NetworkManager:
         reached, maintains connection, and cleans up on disconnect.
         """
         ws = websocket._get_current_object()
-        self.clients.add(ws)
+        # Mark new client as not ready by default
+        self.clients[ws] = False
+        try:
+            client_id = getattr(ws, 'id', None) or id(ws)
+        except Exception:
+            client_id = id(ws)
+        logger.info("Client connected: %s (connected=%d)", client_id, len(self.clients))
 
         try:
-            # Start game loop once minimum clients connect
-            if (
-                len(self.clients) == self.required_clients
-                and not self.game_task
-            ):
-                self.game_task = asyncio.create_task(self._game_loop())
-
-            # Keep connection alive
+            # Keep connection alive and receive messages
             while True:
-                await websocket.receive()
+                data = await websocket.receive()
+                if not data:
+                    continue
+
+                # Expect bytes messages where first byte is type
+                # Accept both bytes and text frames from clients
+                if (isinstance(data, bytes) or isinstance(data, str)) and len(data) >= 1:
+                    if isinstance(data, str):
+                        # text frame: get first character ordinal
+                        raw = data
+                        try:
+                            msg_type = ord(raw[0])
+                        except Exception:
+                            # fallback: encode then take first byte
+                            raw_b = raw.encode('latin-1', errors='ignore')
+                            msg_type = raw_b[0] if raw_b else None
+                    else:
+                        raw = data
+                        msg_type = data[0]
+
+                    logger.debug("Received msg from %s: type=%s raw=%s", client_id, msg_type, repr(raw)[:60])
+
+                    if msg_type == MSG_TYPE_CLIENT_READY:
+                        # Mark this ws as ready
+                        self.clients[ws] = True
+
+                        ready_count = sum(1 for v in self.clients.values() if v)
+                        connected_count = len(self.clients)
+                        logger.info(
+                            "Client %s READY (%d/%d) required=%d",
+                            client_id,
+                            ready_count,
+                            connected_count,
+                            self.required_clients,
+                        )
+
+                        # If enough clients are ready, start the game.
+                        # Allow start when either:
+                        # - ready_count >= required_clients OR
+                        # - all currently connected clients are ready (useful for local testing)
+                        can_start = (
+                            ready_count >= self.required_clients
+                            or (connected_count > 0 and ready_count == connected_count)
+                        )
+
+                        if can_start and not self.game_task:
+                            logger.info("Starting game: ready=%d connected=%d", ready_count, connected_count)
+                            # Broadcast start signal then start loop
+                            await self._send_to_all(bytes([MSG_TYPE_START_GAME]))
+                            self.game_task = asyncio.create_task(self._game_loop())
+                    # ignore other message types for now
 
         except asyncio.CancelledError:
             pass
         finally:
-            self.clients.discard(ws)
+            # Remove client record
+            if ws in self.clients:
+                del self.clients[ws]
 
             # Stop game if clients drop below minimum
             if len(self.clients) < self.required_clients:
@@ -139,6 +197,13 @@ class NetworkManager:
             msg: Message bytes to broadcast.
         """
         if self.clients:
+            try:
+                # Log when broadcasting a start message for debugging
+                if len(msg) >= 1 and msg[0] == MSG_TYPE_START_GAME:
+                    logger.info("Broadcasting START_GAME to %d client(s)", len(self.clients))
+            except Exception:
+                pass
+
             await asyncio.gather(
                 *(client.send(msg) for client in self.clients),
                 return_exceptions=True,

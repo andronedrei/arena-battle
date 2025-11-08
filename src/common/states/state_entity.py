@@ -9,6 +9,7 @@ from common.config import (
     MAX_ENTITY_ID,
     MAX_ENTITIES_COUNT,
     ENTITY_PACKED_SIZE,
+    AMMO_INFINITE,
 )
 
 
@@ -36,6 +37,8 @@ class StateEntity:
         radius: float = DEFAULT_ENTITY_RADIUS,
         team: int = Team.NEUTRAL,
         gun_angle: float = 0.0,
+        health: float = 0.0,
+        ammo: int = AMMO_INFINITE,
     ) -> None:
         """
         Initialize entity state.
@@ -54,6 +57,10 @@ class StateEntity:
         self.radius = radius
         self.team = team
         self.gun_angle = gun_angle
+        # Gameplay state values (sent over network)
+        self.health = health
+        # Ammo is uint16 in network. Use AMMO_INFINITE as sentinel for unlimited.
+        self.ammo = ammo
 
     # State modification
 
@@ -84,19 +91,21 @@ class StateEntity:
         Serialize entity to binary format.
 
         Format: [id:uint16][x:float][y:float][radius:float]
-                [gun_angle:float][team:uint8]
+                [gun_angle:float][team:uint8][health:float][ammo:uint16]
 
         Returns:
-            Packed binary data (19 bytes).
+            Packed binary data (ENTITY_PACKED_SIZE bytes).
         """
         return struct.pack(
-            "!HffffB",
+            "!HffffBfH",
             self.id_entity,
             self.x,
             self.y,
             self.radius,
             self.gun_angle,
             self.team,
+            float(self.health),
+            int(self.ammo),
         )
 
     @staticmethod
@@ -165,8 +174,10 @@ class StateEntity:
                 radius,
                 gun_angle,
                 team,
+                health,
+                ammo,
             ) = struct.unpack(
-                "!HffffB", data[offset: offset + ENTITY_PACKED_SIZE]
+                "!HffffBfH", data[offset: offset + ENTITY_PACKED_SIZE]
             )
             offset += ENTITY_PACKED_SIZE
 
@@ -178,7 +189,16 @@ class StateEntity:
             if team not in [t.value for t in Team]:
                 raise ValueError(f"Invalid team: {team}")
 
-            entity = StateEntity(id_entity, x, y, radius, team, gun_angle)
+            entity = StateEntity(
+                id_entity,
+                x,
+                y,
+                radius,
+                team,
+                gun_angle,
+                health,
+                ammo,
+            )
             entities.append(entity)
 
         return entities

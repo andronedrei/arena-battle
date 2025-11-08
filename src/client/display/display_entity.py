@@ -3,6 +3,7 @@ import math
 
 from pyglet.graphics import Batch, Group
 from pyglet.shapes import Circle, Polygon, Rectangle
+from pyglet.text import Label
 
 
 # Internal libraries
@@ -21,6 +22,7 @@ from common.config import (
     FOV_RATIO,
     RAY_STEP_DIVISOR,
 )
+from common.config import AMMO_INFINITE
 from common.states.state_entity import StateEntity
 from common.states.state_walls import StateWalls
 
@@ -93,6 +95,39 @@ class DisplayEntity(BatchObject):
         self.gun.anchor_y = gun_width / 2
         self.gun.rotation = math.degrees(entity_state.gun_angle)
         self.gun.opacity = opacity
+
+        # Health and ammo labels (above the entity)
+        hp_y = entity_state.y + entity_state.radius + 6
+        self.hp_label = self.register_sub_object(
+            Label(
+                f"HP: {int(entity_state.health)}",
+                x=entity_state.x,
+                y=hp_y,
+                anchor_x="center",
+                anchor_y="bottom",
+                font_size=10,
+                color=(255, 255, 255, 255),
+                batch=batch,
+                group=Group(order=group_order + 3),
+            )
+        )
+
+        ammo_text = (
+            "∞" if entity_state.ammo == AMMO_INFINITE else str(int(entity_state.ammo))
+        )
+        self.ammo_label = self.register_sub_object(
+            Label(
+                f"Ammo: {ammo_text}",
+                x=entity_state.x,
+                y=hp_y + 12,
+                anchor_x="center",
+                anchor_y="bottom",
+                font_size=10,
+                color=(200, 200, 200, 255),
+                batch=batch,
+                group=Group(order=group_order + 3),
+            )
+        )
 
     # Color
 
@@ -264,6 +299,22 @@ class DisplayEntity(BatchObject):
         new_color = self.get_team_color(new_state.team)
         if self.shape.color != new_color:
             self.shape.color = new_color
+
+        # Update health & ammo labels
+        try:
+            self.hp_label.text = f"HP: {int(new_state.health)}"
+            self.hp_label.x = new_state.x
+            self.hp_label.y = new_state.y + new_state.radius + 6
+
+            if new_state.ammo == AMMO_INFINITE:
+                self.ammo_label.text = "Ammo: ∞"
+            else:
+                self.ammo_label.text = f"Ammo: {int(new_state.ammo)}"
+            self.ammo_label.x = new_state.x
+            self.ammo_label.y = new_state.y + new_state.radius + 18
+        except Exception:
+            # If labels are unavailable for any reason, ignore UI update
+            pass
 
     # Visual properties
 

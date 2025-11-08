@@ -58,6 +58,8 @@ WALL_CONFIG = "common/wall_configs/walls_config1.txt"
 MSG_TYPE_ENTITIES = 0x02
 MSG_TYPE_WALLS = 0x03
 MSG_TYPE_BULLETS = 0x04
+MSG_TYPE_CLIENT_READY = 0x05
+MSG_TYPE_START_GAME = 0x06
 
 # Network configuration (server connection)
 WEBSOCKET_ROUTE = "/ws"
@@ -73,7 +75,15 @@ MAX_BULLETS_COUNT = 65535
 MAX_WALL_CHANGES = 65535
 MAX_CELL_COORDINATE = 65535
 
-# Binary packet structure sizes (in bytes, must not change)
-ENTITY_PACKED_SIZE = 19  # 2+4+4+4+4+1
+# Note: Binary packet structure sizes (in bytes). If you change these,
+# make sure client and server stay in sync.
+
+# Entity packet layout changed to include health (float) and ammo (uint16).
+# Format bytes: id:uint16 (2) + x:float (4) + y:float (4) + radius:float (4)
+# + gun_angle:float (4) + team:uint8 (1) + health:float (4) + ammo:uint16 (2)
+ENTITY_PACKED_SIZE = 25  # 2+4+4+4+4+1+4+2
 BULLET_PACKED_SIZE = 17  # 2+4+4+4+2+1
 WALL_CHANGE_PACKED_SIZE = 5  # 1+2+2
+
+# Ammo sentinel value: if ammo equals this, treat as infinite on client UI.
+AMMO_INFINITE = 65535

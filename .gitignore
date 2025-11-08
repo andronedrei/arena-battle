@@ -23,6 +23,7 @@ dist/
 .coverage
 htmlcov/
 *.prof
+logs/
 
 # --- Environment / config files ---
 .env

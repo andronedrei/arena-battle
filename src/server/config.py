@@ -18,13 +18,17 @@ from server.strategy.random_strategy import RandomStrategy
 
 # Agent properties
 DEFAULT_AGENT_HEALTH = 100.0
-DEFAULT_AGENT_DAMAGE = 55.0
+DEFAULT_AGENT_DAMAGE = 20.0
 DEFAULT_AGENT_SPEED = 50.0
 
 # Weapon mechanics
 DEFAULT_SHOOT_DURATION = 1.0  # Cooldown between shots (seconds)
 BULLET_SPEED = 100.0  # Pixels per second
 BULLET_SPAWN_OFFSET_RATIO = 1.2  # Ratio compared to r
+
+# Magazine / reload
+DEFAULT_MAGAZINE_SIZE = 6  # Bullets per magazine
+DEFAULT_RELOAD_DURATION = 2.0  # Seconds to reload a magazine
 
 # Agent behavior
 AGENT_GUN_ROTATION_SPEED = 2.0 * math.pi / 5.0  # Radians per second

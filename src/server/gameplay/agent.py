@@ -12,6 +12,7 @@ from common.config import (
     LOGICAL_SCREEN_WIDTH,
     RAY_STEP_DIVISOR,
 )
+from common.config import AMMO_INFINITE
 from common.states.state_entity import MAX_ENTITY_ID, StateEntity, Team
 from common.states.state_walls import StateWalls
 from server.config import (
@@ -24,6 +25,7 @@ from server.config import (
     DEFAULT_SHOOT_DURATION,
     NO_SHOOT,
 )
+from server.config import DEFAULT_MAGAZINE_SIZE, DEFAULT_RELOAD_DURATION
 from server.gameplay.bullet import Bullet
 from server.gameplay.collision import (
     CollisionType,
@@ -87,6 +89,7 @@ class Agent:
         speed: float = DEFAULT_AGENT_SPEED,
         shoot_duration: float = DEFAULT_SHOOT_DURATION,
         gun_angle: float | None = None,
+        ammo: int | None = None,
     ) -> None:
         """
         Initialize agent with auto-generated ID.
@@ -111,6 +114,11 @@ class Agent:
             map_mid = LOGICAL_SCREEN_WIDTH / 2
             gun_angle = 0.0 if x < map_mid else math.pi
 
+        # Ammo: None means infinite -> use AMMO_INFINITE sentinel
+        from common.config import AMMO_INFINITE
+
+        ammo_val = AMMO_INFINITE if ammo is None else int(ammo)
+
         self.state = StateEntity(
             id_entity=Agent.get_next_id(),
             x=x,
@@ -118,6 +126,8 @@ class Agent:
             radius=DEFAULT_ENTITY_RADIUS,
             team=team,
             gun_angle=gun_angle,
+            health=health,
+            ammo=ammo_val,
         )
 
         self.walls_state = walls_state
@@ -129,6 +139,20 @@ class Agent:
         self.health = health
         self.damage = damage
         self.speed = speed
+        self.ammo = ammo
+        # Magazine and reload state
+        self.magazine_size = DEFAULT_MAGAZINE_SIZE
+        self.reload_duration = DEFAULT_RELOAD_DURATION
+        # current_ammo mirrors the bullets remaining in the magazine
+        # Use AMMO_INFINITE sentinel for infinite ammo
+        self.current_ammo = (
+            AMMO_INFINITE if ammo is None else int(ammo_val if ammo_val != AMMO_INFINITE else AMMO_INFINITE)
+        )
+        # If current_ammo is not infinite but greater than magazine_size, clamp it to magazine_size
+        if self.current_ammo != AMMO_INFINITE and self.current_ammo > self.magazine_size:
+            self.current_ammo = self.magazine_size
+        # Reload timer in seconds (None when not reloading)
+        self.reload_timer: float | None = None
         self.time_alive = 0.0
         self.shoot_timer = NO_SHOOT
         self.gun_rotation_speed = AGENT_GUN_ROTATION_SPEED
@@ -163,6 +187,17 @@ class Agent:
             self.shoot_timer -= dt
             if self.shoot_timer <= 0:
                 self._fire_bullet()
+
+        # Handle reload timer if active
+        if self.reload_timer is not None:
+            self.reload_timer -= dt
+            if self.reload_timer <= 0:
+                # Finish reload: refill magazine
+                if self.current_ammo != AMMO_INFINITE:
+                    self.current_ammo = self.magazine_size
+                    # Update network-visible state ammo
+                    self.state.ammo = int(self.current_ammo)
+                self.reload_timer = None
 
     # Movement
 
@@ -293,8 +328,26 @@ class Agent:
 
         Called by strategy when agent should fire.
         """
-        if self.shoot_timer == NO_SHOOT:
-            self.shoot_timer = DEFAULT_SHOOT_DURATION
+        # If currently reloading, ignore trigger
+        if self.reload_timer is not None:
+            return
+
+        # If infinite ammo, allow shooting
+        from common.config import AMMO_INFINITE
+
+        if self.current_ammo == AMMO_INFINITE:
+            if self.shoot_timer == NO_SHOOT:
+                self.shoot_timer = DEFAULT_SHOOT_DURATION
+            return
+
+        # If we have bullets in magazine, set shoot timer
+        if self.current_ammo > 0:
+            if self.shoot_timer == NO_SHOOT:
+                self.shoot_timer = DEFAULT_SHOOT_DURATION
+            return
+
+        # No bullets: start reload
+        self.start_reload()
 
     def _fire_bullet(self) -> None:
         """Spawn bullet at gun muzzle position."""
@@ -305,6 +358,13 @@ class Agent:
         spawn_y = (
             self.state.y - math.sin(self.state.gun_angle) * offset
         )
+        from common.config import AMMO_INFINITE
+
+        # If out of ammo and not infinite, do not fire (start reload instead)
+        if self.current_ammo != AMMO_INFINITE and self.current_ammo <= 0:
+            self.start_reload()
+            self.shoot_timer = NO_SHOOT
+            return
 
         bullet = Bullet(
             x=spawn_x,
@@ -317,7 +377,26 @@ class Agent:
         )
 
         self.bullets_dict[bullet.state.id_bullet] = bullet
+
+        # Consume ammo if not infinite
+        if self.current_ammo != AMMO_INFINITE:
+            self.current_ammo = max(0, int(self.current_ammo - 1))
+            self.state.ammo = int(self.current_ammo)
+            # If magazine now empty, start reload
+            if self.current_ammo == 0:
+                self.start_reload()
+
         self.shoot_timer = NO_SHOOT
+
+    def start_reload(self) -> None:
+        """Begin reloading magazine if not already reloading."""
+        # If already reloading or infinite ammo, no-op
+        from common.config import AMMO_INFINITE
+
+        if self.reload_timer is not None or self.current_ammo == AMMO_INFINITE:
+            return
+
+        self.reload_timer = self.reload_duration
 
     # Vision and detection
 
@@ -462,6 +541,11 @@ class Agent:
             amount: Damage amount to apply.
         """
         self.health = max(0.0, self.health - amount)
+        # Mirror to network-visible state so clients see updated health
+        try:
+            self.state.health = float(self.health)
+        except Exception:
+            pass
 
     def is_alive(self) -> bool:
         """

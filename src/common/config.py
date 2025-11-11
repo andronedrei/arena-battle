@@ -40,9 +40,9 @@ NETWORK_UPDATE_RATE = 15  # Network broadcast rate (Hz), also FPS in client
 DEFAULT_ENTITY_RADIUS = 20
 
 # Vision system (field-of-view ray casting)
-FOV_RATIO = 50.0  # FOV radius = entity.radius * FOV_RATIO
+FOV_RATIO = 40.0  # FOV radius = entity.radius * FOV_RATIO
 FOV_OPENING = math.pi / 3  # FOV cone angle in radians (60 degrees)
-FOV_NUM_RAYS = 50  # Ray-cast samples (more = smoother detection)
+FOV_NUM_RAYS = 25  # Ray-cast samples (more = smoother detection)
 FOV_OPACITY = 80  # FOV polygon transparency (0-255, client only)
 RAY_STEP_DIVISOR = 2  # Ray casting precision (grid_unit / divisor)
 

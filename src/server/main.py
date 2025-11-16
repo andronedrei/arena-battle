@@ -1,7 +1,6 @@
 # Internal libraries
 from common.config import WALL_CONFIG
-from server.gameplay.game_manager import GameManager
-from server.network.network_manager import NetworkManager
+from server.network.network_manager import NetworkManagerUnified
 from common.logger import setup_logging, get_logger
 
 # Initialize logging early for the server
@@ -11,16 +10,19 @@ logger = get_logger(__name__)
 
 def main() -> None:
     """
-    Initialize and start game server.
+    Initialize and start unified game server.
+    
+    Server waits for clients to select game mode from menu,
+    then initializes the appropriate game manager (Survival or KOTH).
 
     Flow:
-    1. Create GameManager (initializes world state internally)
-    2. Create NetworkManager (initializes WebSocket server)
-    3. Run network loop (blocking)
+    1. Create NetworkManagerUnified (handles both modes)
+    2. Wait for first client to select mode
+    3. Initialize appropriate GameManager
+    4. Run network loop (blocking)
     """
-    logger.info("Starting server")
-    game_mgr = GameManager(WALL_CONFIG)
-    net_mgr = NetworkManager(game_mgr)
+    logger.info("Starting unified server (Survival + KOTH)")
+    net_mgr = NetworkManagerUnified(WALL_CONFIG)
     net_mgr.run()
 
 

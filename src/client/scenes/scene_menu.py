@@ -41,7 +41,7 @@ class SceneMenu(Scene):
         btn_h = 48
         center_x = LOGICAL_SCREEN_WIDTH // 2
         start_y = LOGICAL_SCREEN_HEIGHT // 2 + 40
-        labels = ["Survival", "Option2", "Option3"]
+        labels = ["Survival", "King of the Hill", "Option3"]
 
         for i, text in enumerate(labels):
             bx = center_x - btn_w // 2
@@ -80,66 +80,77 @@ class SceneMenu(Scene):
     def helper_mouse_press(self, logical_x: float, logical_y: float, button: int, modifiers: int) -> None:
         """Handle clicks on buttons."""
         logger.debug("[Menu] Mouse press at (%.1f, %.1f), button=%s", logical_x, logical_y, button)
-
+        
+        # Import mode constants
+        from common.config import MSG_TYPE_SELECT_MODE, GAME_MODE_SURVIVAL, GAME_MODE_KOTH
+        
         for btn in self.buttons:
-            # Ignore clicks on disabled buttons
             if btn.get("disabled"):
                 continue
-
+            
             r = btn["rect"]
             if r.x <= logical_x <= r.x + r.width and r.y <= logical_y <= r.y + r.height:
                 name = btn["name"]
                 logger.info("[Menu] Clicked button '%s'", name)
+                
+                # Get network instance
+                import sys
+                network_instance = None
+                main_mod = sys.modules.get("__main__")
+                if main_mod is not None:
+                    network_instance = getattr(main_mod, "network_instance", None)
+                
+                if network_instance is None:
+                    try:
+                        import client.main as client_main_mod
+                        network_instance = getattr(client_main_mod, "network_instance", None)
+                    except Exception:
+                        pass
+                
+                logger.debug("[Menu] resolved network_instance=%s", network_instance)
+                
                 if name == "Survival":
-                    # Send ready to server and show waiting feedback
-                    # Try to find the running main module's network_instance.
-                    # When the client is run as a script its module name is '__main__',
-                    # so check that first; otherwise fall back to 'client.main'.
-                    import sys
-
-                    network_instance = None
-                    main_mod = sys.modules.get("__main__")
-                    if main_mod is not None:
-                        network_instance = getattr(main_mod, "network_instance", None)
-
-                    if network_instance is None:
-                        try:
-                            import client.main as client_main_mod
-
-                            network_instance = getattr(client_main_mod, "network_instance", None)
-                        except Exception:
-                            network_instance = None
-
-                    logger.debug("[Menu] resolved network_instance=%s", network_instance)
-
-                    # Always update UI immediately so user gets feedback
+                    # Update UI
                     btn["label"].text = "Waiting for players..."
                     btn["rect"].color = (100, 100, 140)
                     btn["disabled"] = True
-
+                    
+                    # Send mode selection + ready
                     if network_instance:
                         try:
+                            # Send mode selection
+                            network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_SURVIVAL]))
+                            # Send ready
                             network_instance.send_ready()
-                            logger.info("[Menu] Sent ready to server")
+                            logger.info("[Menu] Sent Survival mode selection + ready")
                         except Exception as e:
-                            logger.exception("[Menu] Error sending ready: %s", e)
+                            logger.exception("[Menu] Error sending mode/ready: %s", e)
+                
+                elif name == "Option2":  # KOTH
+                    # Change label first time
+                    if btn["orig_text"] == "Option2":
+                        btn["label"].text = "King of the Hill"
+                        btn["orig_text"] = "King of the Hill"
                     else:
-                        # If no network available, fall back to local start
-                        try:
-                            # Try to use the already-resolved main_mod (which may be __main__)
-                            if main_mod and getattr(main_mod, "window_instance", None):
-                                if main_mod.window_instance and main_mod.window_instance.scene_manager:
-                                    main_mod.window_instance.scene_manager.switch_to("gameplay")
-                            else:
-                                # Fallback: import client.main module
-                                import client.main as client_main_mod
-                                if client_main_mod.window_instance and client_main_mod.window_instance.scene_manager:
-                                    client_main_mod.window_instance.scene_manager.switch_to("gameplay")
-                        except Exception as e:
-                            logger.exception("[Menu] Error switching to gameplay locally: %s", e)
+                        # Update UI
+                        btn["label"].text = "Waiting for players..."
+                        btn["rect"].color = (100, 140, 100)
+                        btn["disabled"] = True
+                        
+                        # Send mode selection + ready
+                        if network_instance:
+                            try:
+                                # Send mode selection
+                                network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_KOTH]))
+                                # Send ready
+                                network_instance.send_ready()
+                                logger.info("[Menu] Sent KOTH mode selection + ready")
+                            except Exception as e:
+                                logger.exception("[Menu] Error sending mode/ready: %s", e)
+                
                 else:
-                    # Not implemented feedback: set text once and disable
+                    # Not implemented
                     if not btn.get("disabled"):
                         btn["label"].text = btn["orig_text"] + " (Not implemented)"
                         btn["disabled"] = True
-        
+            

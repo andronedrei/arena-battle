@@ -87,3 +87,19 @@ WALL_CHANGE_PACKED_SIZE = 5  # 1+2+2
 
 # Ammo sentinel value: if ammo equals this, treat as infinite on client UI.
 AMMO_INFINITE = 65535
+
+# Message types
+MSG_TYPE_ENTITIES = 0x02
+MSG_TYPE_WALLS = 0x03
+MSG_TYPE_BULLETS = 0x04
+MSG_TYPE_CLIENT_READY = 0x05
+MSG_TYPE_START_GAME = 0x06
+MSG_TYPE_KOTH_STATE = 0x10
+
+# NEW: Game mode selection messages
+MSG_TYPE_SELECT_MODE = 0x11
+MSG_TYPE_MODE_SELECTED = 0x12
+
+# Game modes
+GAME_MODE_SURVIVAL = 0x01
+GAME_MODE_KOTH = 0x02

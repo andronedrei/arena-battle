@@ -16,7 +16,7 @@ class RandomStrategy(Strategy):
     """
 
     # Configuration
-    DIRECTION_CHANGE_INTERVAL = 2.0  # Seconds between direction changes
+    DIRECTION_CHANGE_INTERVAL = 0.6  # Change direction more frequently to find enemies
 
     # Initialization
 
@@ -48,9 +48,21 @@ class RandomStrategy(Strategy):
         # Move in current direction
         agent.move(dt, self.current_direction)
 
-        # Engage visible enemies
+        # Engage visible enemies aggressively
         if agent.detected_enemies:
-            target_id = agent.get_closest_enemy()
-            target = agent.agents_dict[target_id].state
-            agent.point_gun_at(target.x, target.y)
-            agent.load_bullet()
+            # Prefer lowest-health enemy so agents focus-fire
+            target_id = None
+            min_health = float("inf")
+            for eid in agent.detected_enemies:
+                if eid in agent.agents_dict:
+                    e = agent.agents_dict[eid].state
+                    if e.health < min_health:
+                        min_health = e.health
+                        target_id = eid
+
+            if target_id is not None:
+                target = agent.agents_dict[target_id].state
+                agent.point_gun_at(target.x, target.y)
+                agent.load_bullet()
+                # Move slightly toward enemy to increase hit chance
+                agent.move_towards(dt, target.x, target.y)

@@ -47,6 +47,8 @@ class GameManager:
         self.bullets: dict[int, Bullet] = {}
         self.tick_count = 0
         self.is_running = False
+        # Winner team for the match (None while ongoing)
+        self.winner_team = None
 
     # Agent management
 
@@ -145,5 +147,18 @@ class GameManager:
             for other_agent in self.agents.values():
                 other_agent.detected_enemies.discard(aid)
             del self.agents[aid]
+
+        # Check win condition: if only one team remains, mark winner and stop
+        remaining_teams = set()
+        for agent in self.agents.values():
+            if agent.state.team is not None:
+                remaining_teams.add(agent.state.team)
+
+        # Filter out neutral/teamless markers if present (assume Team enum non-neutral values indicate teams)
+        if len(remaining_teams) == 1:
+            # single team left -> that team wins
+            self.winner_team = remaining_teams.pop()
+            # stop running to allow network manager to broadcast GAME_END
+            self.is_running = False
 
         self.tick_count += 1

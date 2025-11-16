@@ -14,6 +14,7 @@ from common.config import (
     MSG_TYPE_BULLETS,
     MSG_TYPE_CLIENT_READY,
     MSG_TYPE_START_GAME,
+        MSG_TYPE_GAME_END,
     MSG_TYPE_KOTH_STATE,
     MSG_TYPE_MODE_SELECTED,
     GAME_MODE_KOTH,
@@ -169,6 +170,75 @@ class ClientNetwork:
                 schedule_once(lambda dt: _attempt_switch(0, dt), 0.0)
             except Exception as e:
                 logger.exception("Error handling START_GAME: %s", e)
+        elif msg_type == MSG_TYPE_GAME_END:
+            # Server signals match end: payload may contain winning team id
+            winner = None
+            if payload and len(payload) >= 1:
+                try:
+                    winner = int(payload[0])
+                except Exception:
+                    winner = None
+
+            logger.info("Received GAME_END from server - winner=%s", winner)
+            try:
+                from pyglet.clock import schedule_once
+
+                # Schedule a short on-screen log (main thread) to notify player
+                def _notify(dt: float) -> None:
+                    try:
+                        # Attempt to resolve window and show a console/log message
+                        import sys
+
+                        main_mod = sys.modules.get("__main__")
+                        window_instance = None
+                        if main_mod is not None:
+                            window_instance = getattr(main_mod, "window_instance", None)
+
+                        if window_instance is not None:
+                            # If you want a UI overlay, this is where we'd add it.
+                            # For now log to file/console so user sees result.
+                            pass
+                    except Exception:
+                        logger.exception("Error during GAME_END notify callback")
+
+                schedule_once(_notify, 0.0)
+            except Exception:
+                logger.exception("Error scheduling GAME_END notify")
+
+            # Wait so the user can see the message, then close connection and exit
+            try:
+                disconnect_delay = 5.0
+                logger.info("Waiting %.1fs before disconnecting and exiting", disconnect_delay)
+                await asyncio.sleep(disconnect_delay)
+
+                # Close websocket gracefully
+                try:
+                    if self._ws is not None:
+                        await self._ws.close()
+                        logger.info("Closed websocket after game end")
+                except Exception:
+                    logger.exception("Error closing websocket on game end")
+
+                # Stop network loop
+                self.running = False
+
+                # Exit the client application on the main thread
+                try:
+                    import sys
+                    from pyglet.clock import schedule_once
+
+                    def _exit_app(dt: float) -> None:
+                        try:
+                            import pyglet.app as _pyglet_app
+                            _pyglet_app.exit()
+                        except Exception:
+                            logger.exception("Error exiting pyglet app")
+
+                    schedule_once(_exit_app, 0.0)
+                except Exception:
+                    logger.exception("Error scheduling app exit")
+            except Exception:
+                logger.exception("Error handling GAME_END sequence")
 
     # Outgoing message handling (thread-safe)
 

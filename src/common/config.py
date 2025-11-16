@@ -99,6 +99,8 @@ MSG_TYPE_KOTH_STATE = 0x10
 # NEW: Game mode selection messages
 MSG_TYPE_SELECT_MODE = 0x11
 MSG_TYPE_MODE_SELECTED = 0x12
+# Game end message
+MSG_TYPE_GAME_END = 0x07
 
 # Game modes
 GAME_MODE_SURVIVAL = 0x01

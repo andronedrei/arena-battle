@@ -1,19 +1,24 @@
-# External libraries
+"""
+Unified Network Manager - handles both Survival and KOTH modes dynamically.
+
+Waits for first client to select game mode, then initializes that mode.
+"""
+
 import asyncio
 import time
 
 from quart import Quart, websocket
 
-
-import logging
-
-# Internal libraries
 from common.config import (
     NETWORK_UPDATE_RATE,
     MSG_TYPE_BULLETS,
     MSG_TYPE_ENTITIES,
     MSG_TYPE_CLIENT_READY,
     MSG_TYPE_START_GAME,
+    MSG_TYPE_SELECT_MODE,
+    MSG_TYPE_MODE_SELECTED,
+    GAME_MODE_SURVIVAL,
+    GAME_MODE_KOTH,
     NETWORK_HOST,
     NETWORK_PORT,
     SIMULATION_TICK_RATE,
@@ -22,86 +27,107 @@ from common.config import (
 from common.states.state_bullet import StateBullet
 from common.states.state_entity import StateEntity
 from server.config import REQUIRED_CLIENTS_TO_START
+from server.gameplay.game_manager import GameManager
+from server.gameplay.game_manager_koth import GameManagerKOTH
 from common.logger import get_logger
+
+# KOTH-specific imports
+import sys
+import os
+# Add path for KOTH files
+koth_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
+if koth_path not in sys.path:
+    sys.path.insert(0, koth_path)
+
+try:
+    from koth_config import MSG_TYPE_KOTH_STATE
+except ImportError:
+    MSG_TYPE_KOTH_STATE = 0x10  # Fallback
 
 logger = get_logger(__name__)
 
 
-class NetworkManager:
+class NetworkManagerUnified:
     """
-    WebSocket server for game state synchronization using Quart.
-
-    Manages client connections, runs game loop at configured rates,
-    and broadcasts entity states to all connected clients.
+    Unified WebSocket server supporting multiple game modes.
+    
+    Workflow:
+    1. Clients connect and wait in lobby
+    2. First client selects game mode from menu
+    3. Server creates appropriate GameManager
+    4. All clients are notified and game starts
     """
-
-    def __init__(self, game_manager) -> None:
+    
+    def __init__(self, wall_config_file: str) -> None:
         """
-        Initialize network manager.
-
+        Initialize unified network manager.
+        
         Args:
-            game_manager: GameManager instance handling simulation.
+            wall_config_file: Path to walls configuration file.
         """
         self.app = Quart(__name__)
-        self.game_manager = game_manager
-        # Map websocket -> ready_bool
-        self.clients: dict = {}
+        self.wall_config_file = wall_config_file
+        self.game_manager = None
+        self.game_mode = None
+        
+        # MODIFICAT: Track individual client states
+        self.clients: dict = {}  # ws -> {'ready': bool, 'mode': int|None}
+        
         self.required_clients = REQUIRED_CLIENTS_TO_START
         self.game_task: asyncio.Task | None = None
-
+        
+        # ȘTERS: self.mode_locked - nu mai avem nevoie
+        
         # Register WebSocket endpoint
         @self.app.websocket(WEBSOCKET_ROUTE)
         async def ws_handler() -> None:
             await self.handle_client()
-
+    
     # Connection management
-
+    
     async def handle_client(self) -> None:
-        """
-        Handle individual client connection lifecycle.
-
-        Adds client to tracking, starts game loop if minimum clients
-        reached, maintains connection, and cleans up on disconnect.
-        """
+        """Handle individual client connection lifecycle."""
         ws = websocket._get_current_object()
-        # Mark new client as not ready by default
-        self.clients[ws] = False
+
+        self.clients[ws] = {'ready': False, 'mode': None}
+        
         try:
             client_id = getattr(ws, 'id', None) or id(ws)
         except Exception:
             client_id = id(ws)
-        logger.info("Client connected: %s (connected=%d)", client_id, len(self.clients))
-
+        
+        logger.info("Client connected: %s (total=%d)", client_id, len(self.clients))
+        
         try:
-            # Keep connection alive and receive messages
             while True:
                 data = await websocket.receive()
                 if not data:
                     continue
-
-                # Expect bytes messages where first byte is type
-                # Accept both bytes and text frames from clients
+                
                 if (isinstance(data, bytes) or isinstance(data, str)) and len(data) >= 1:
                     if isinstance(data, str):
-                        # text frame: get first character ordinal
                         raw = data
                         try:
                             msg_type = ord(raw[0])
                         except Exception:
-                            # fallback: encode then take first byte
                             raw_b = raw.encode('latin-1', errors='ignore')
                             msg_type = raw_b[0] if raw_b else None
                     else:
                         raw = data
                         msg_type = data[0]
-
-                    logger.debug("Received msg from %s: type=%s raw=%s", client_id, msg_type, repr(raw)[:60])
-
-                    if msg_type == MSG_TYPE_CLIENT_READY:
-                        # Mark this ws as ready
-                        self.clients[ws] = True
-
-                        ready_count = sum(1 for v in self.clients.values() if v)
+                    
+                    logger.debug("Received msg from %s: type=%s", client_id, msg_type)
+                    
+                    # Handle mode selection
+                    if msg_type == MSG_TYPE_SELECT_MODE and len(data) >= 2:
+                        selected_mode = data[1] if isinstance(data, bytes) else ord(data[1])
+                        await self._handle_mode_selection(selected_mode, client_id, ws)
+                    
+                    # Handle ready message
+                    elif msg_type == MSG_TYPE_CLIENT_READY:
+                        self.clients[ws]['ready'] = True
+                        
+                        ready_count = sum(1 for c in self.clients.values() if c['ready'])
                         connected_count = len(self.clients)
                         logger.info(
                             "Client %s READY (%d/%d) required=%d",
@@ -110,145 +136,198 @@ class NetworkManager:
                             connected_count,
                             self.required_clients,
                         )
-
-                        # If enough clients are ready, start the game.
-                        # Allow start when either:
-                        # - ready_count >= required_clients OR
-                        # - all currently connected clients are ready (useful for local testing)
-                        can_start = (
-                            ready_count >= self.required_clients
-                            or (connected_count > 0 and ready_count == connected_count)
-                        )
-
-                        if can_start and not self.game_task:
-                            logger.info("Starting game: ready=%d connected=%d", ready_count, connected_count)
-                            # Broadcast start signal then start loop
+                        
+                        can_start = await self._check_can_start()
+                        
+                        if can_start and not self.game_task and self.game_manager is not None:
+                            logger.info("Starting game: mode=%s ready=%d connected=%d", 
+                                    "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival",
+                                    ready_count, connected_count)
                             await self._send_to_all(bytes([MSG_TYPE_START_GAME]))
                             self.game_task = asyncio.create_task(self._game_loop())
-                    # ignore other message types for now
-
+        
         except asyncio.CancelledError:
             pass
         finally:
-            # Remove client record
             if ws in self.clients:
                 del self.clients[ws]
-
-            # Stop game if clients drop below minimum
+            
+            # Stop game if not enough clients
             if len(self.clients) < self.required_clients:
                 if self.game_task:
                     self.game_task.cancel()
                     self.game_task = None
-                self.game_manager.is_running = False
-
+                if self.game_manager:
+                    self.game_manager.is_running = False
+    
+    async def _handle_mode_selection(self, mode: int, client_id, ws) -> None:
+        """
+        Handle game mode selection from client.
+        
+        Args:
+            mode: Selected game mode (GAME_MODE_SURVIVAL or GAME_MODE_KOTH).
+            client_id: ID of client that selected the mode.
+            ws: WebSocket of the client.
+        """
+        mode_name = "KOTH" if mode == GAME_MODE_KOTH else "Survival"
+        logger.info("Client %s selected mode: %s", client_id, mode_name)
+        
+        # Store this client's mode selection
+        self.clients[ws]['mode'] = mode
+        
+        # Check if all clients have selected a mode
+        modes_selected = [c['mode'] for c in self.clients.values() if c['mode'] is not None]
+        
+        if len(modes_selected) == 0:
+            return
+        
+        # Check if all selected modes are the same
+        if len(set(modes_selected)) == 1:
+            # All clients agree on the mode!
+            agreed_mode = modes_selected[0]
+            
+            # Create game manager if not exists or mode changed
+            if self.game_mode != agreed_mode:
+                self.game_mode = agreed_mode
+                
+                if agreed_mode == GAME_MODE_KOTH:
+                    self.game_manager = GameManagerKOTH(self.wall_config_file)
+                    logger.info("Created GameManagerKOTH - all clients agreed on KOTH")
+                else:
+                    self.game_manager = GameManager(self.wall_config_file)
+                    logger.info("Created GameManager - all clients agreed on Survival")
+                
+                # Notify all clients of the agreed mode
+                await self._send_to_all(bytes([MSG_TYPE_MODE_SELECTED, agreed_mode]))
+                logger.info("All clients agree on mode: %s", mode_name)
+        else:
+            # Clients have different modes selected - wait for consensus
+            logger.info("Clients have different mode selections - waiting for consensus")
+            logger.debug("Current modes: %s", modes_selected)
+    
+    
+    async def _check_can_start(self) -> bool:
+        """
+        Check if game can start.
+        
+        Requirements:
+        - All clients must have selected a mode
+        - All clients must have selected the SAME mode
+        - All clients must be ready
+        - Minimum required_clients must be met
+        
+        Returns:
+            True if game can start, False otherwise.
+        """
+        if len(self.clients) < self.required_clients:
+            return False
+        
+        # Check all clients are ready
+        if not all(c['ready'] for c in self.clients.values()):
+            return False
+        
+        # Check all clients have selected a mode
+        modes = [c['mode'] for c in self.clients.values()]
+        if None in modes:
+            logger.info("Cannot start - not all clients have selected a mode")
+            return False
+        
+        # Check all modes are the same
+        if len(set(modes)) != 1:
+            logger.info("Cannot start - clients selected different modes: %s", modes)
+            return False
+        
+        return True
+    
+    
     # Game loop
-
+    
     async def _game_loop(self) -> None:
-        """
-        Main server game loop with separated simulation and broadcast rates.
-
-        Simulation runs at SIMULATION_TICK_RATE Hz for physics accuracy.
-        Network updates broadcast at BROADCAST_RATE Hz to reduce bandwidth.
-        Uses perf_counter for accurate frame timing.
-        """
+        """Main game loop with separated simulation and broadcast rates."""
+        if self.game_manager is None:
+            logger.error("Cannot start game loop - game_manager is None")
+            return
+        
         self.game_manager.is_running = True
-
+        
         sim_dt = 1.0 / SIMULATION_TICK_RATE
         broadcast_interval = 1.0 / NETWORK_UPDATE_RATE
-
+        
+        # CRITICA: Spawn agents pentru modul curent
         self.game_manager.spawn_test_agents()
-
+        logger.info("Spawned agents for %s mode", "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival")
+        
         next_tick = time.perf_counter()
         time_since_broadcast = 0.0
-
+        
         try:
             while (
                 self.game_manager.is_running
                 and len(self.clients) >= self.required_clients
             ):
                 current_time = time.perf_counter()
-
-                # Execute simulation tick when time arrives
+                
                 if current_time >= next_tick:
                     self.game_manager.update(sim_dt)
                     time_since_broadcast += sim_dt
-
-                    # Broadcast at network rate
+                    
                     if time_since_broadcast >= broadcast_interval:
                         await self._broadcast()
                         time_since_broadcast = 0.0
-
+                    
                     next_tick += sim_dt
                 else:
-                    # Sleep until next tick
                     sleep_time = max(0, next_tick - current_time)
                     await asyncio.sleep(sleep_time)
-
+        
         except asyncio.CancelledError:
             self.game_manager.is_running = False
-
+            logger.info("Game loop cancelled")
+            
+            
     # Broadcasting
-
+    
     async def _send_to_all(self, msg: bytes) -> None:
-        """
-        Send message to all connected clients.
-
-        Args:
-            msg: Message bytes to broadcast.
-        """
+        """Send message to all connected clients."""
         if self.clients:
-            try:
-                # Log when broadcasting a start message for debugging
-                if len(msg) >= 1 and msg[0] == MSG_TYPE_START_GAME:
-                    logger.info("Broadcasting START_GAME to %d client(s)", len(self.clients))
-            except Exception:
-                pass
-
             await asyncio.gather(
                 *(client.send(msg) for client in self.clients),
                 return_exceptions=True,
             )
-
+    
     async def _broadcast(self) -> None:
-        """Pack and broadcast entity and bullet states."""
-        # Entities
-        entity_states = [
-            agent.state for agent in self.game_manager.agents.values()
-        ]
+        """Pack and broadcast game state based on current mode."""
+        if self.game_manager is None:
+            return
+        
+        # Entities (both modes)
+        entity_states = [agent.state for agent in self.game_manager.agents.values()]
         entities_bytes = StateEntity.pack_entities(entity_states)
         if entities_bytes:
-            await self._send_to_all(
-                bytes([MSG_TYPE_ENTITIES]) + entities_bytes
-            )
-
-        # Bullets
-        bullet_states = [
-            bullet.state for bullet in self.game_manager.bullets.values()
-        ]
+            await self._send_to_all(bytes([MSG_TYPE_ENTITIES]) + entities_bytes)
+        
+        # Bullets (both modes)
+        bullet_states = [bullet.state for bullet in self.game_manager.bullets.values()]
         bullets_bytes = StateBullet.pack_bullets(bullet_states)
         if bullets_bytes:
-            await self._send_to_all(
-                bytes([MSG_TYPE_BULLETS]) + bullets_bytes
-            )
-
-        # # Walls (disabled - for future use)
-        # wall_changes = self.game_manager.walls_state.pack_changes()
-        # if wall_changes:
-        #     await self._send_to_all(
-        #         bytes([MESSAGE_TYPE_WALL_CHANGES]) + wall_changes
-        #     )
-        #     self.game_manager.walls_state.clear_buffer()
-
+            await self._send_to_all(bytes([MSG_TYPE_BULLETS]) + bullets_bytes)
+        
+        # KOTH state (only for KOTH mode)
+        if self.game_mode == GAME_MODE_KOTH and hasattr(self.game_manager, 'koth_state'):
+            koth_bytes = self.game_manager.koth_state.pack()
+            if koth_bytes:
+                await self._send_to_all(bytes([MSG_TYPE_KOTH_STATE]) + koth_bytes)
+    
     # Server management
-
-    def run(
-        self, host: str = NETWORK_HOST, port: int = NETWORK_PORT
-    ) -> None:
+    
+    def run(self, host: str = NETWORK_HOST, port: int = NETWORK_PORT) -> None:
         """
         Start WebSocket server.
-
+        
         Args:
-            host: Bind address (0.0.0.0 for all interfaces).
-            port: Listen port number.
+            host: Bind address.
+            port: Listen port.
         """
+        logger.info("Starting unified server on %s:%d", host, port)
+        logger.info("Waiting for clients to select game mode...")
         self.app.run(host=host, port=port)

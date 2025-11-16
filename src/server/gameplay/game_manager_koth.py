@@ -13,7 +13,7 @@ from common.states.state_walls import StateWalls
 from server.gameplay.agent import Agent
 from server.gameplay.bullet import Bullet
 from server.gameplay.collision import find_bullet_agent_collisions, find_bullet_wall_collisions
-from server.config import DETECTION_INTERVAL, TEAM_A_SPAWNS, TEAM_B_SPAWNS
+from server.config import DETECTION_INTERVAL, TEAM_A_SPAWNS_KOTH, TEAM_B_SPAWNS_KOTH
 
 # Import KOTH configuration
 from common.koth_config import (
@@ -185,9 +185,9 @@ class GameManagerKOTH:
     # Game loop
     
     def spawn_test_agents(self) -> None:
-        """Spawn agents for both teams."""
-        # Spawn Team A
-        for x, y, strategy_class in TEAM_A_SPAWNS:
+        """Spawn agents for both teams using KOTH-specific spawn points."""
+        # Spawn Team A with KOTH strategy
+        for x, y, strategy_class in TEAM_A_SPAWNS_KOTH:
             agent = Agent(
                 walls_state=self.walls_state,
                 agents_dict=self.agents,
@@ -199,8 +199,8 @@ class GameManagerKOTH:
             )
             self.agents[agent.state.id_entity] = agent
         
-        # Spawn Team B
-        for x, y, strategy_class in TEAM_B_SPAWNS:
+        # Spawn Team B with KOTH strategy
+        for x, y, strategy_class in TEAM_B_SPAWNS_KOTH:
             agent = Agent(
                 walls_state=self.walls_state,
                 agents_dict=self.agents,

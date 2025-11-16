@@ -14,20 +14,21 @@ from common.config import (
 )
 from common.states.state_bullet import StateBullet
 from common.states.state_entity import StateEntity
+from pyglet.text import Label
+from pyglet.graphics import Group
 
 
 class SceneGameplay(Scene):
     """
-    Client-side gameplay scene.
+    Client-side SURVIVAL gameplay scene.
 
-    Displays game state received from the server. Manages display objects
-    for entities, bullets, and walls. Processes network updates
-    asynchronously through queues and applies them during the update cycle.
+    Displays game state for survival mode - pure team deathmatch.
+    NO KOTH elements (no zone, no scores, just combat).
     """
 
     def __init__(self, walls_config_file: str) -> None:
         """
-        Initialize the gameplay scene.
+        Initialize the survival gameplay scene.
 
         Args:
             walls_config_file: Path to the walls configuration file.
@@ -48,6 +49,11 @@ class SceneGameplay(Scene):
         self.pending_walls_queue: deque[bytes] = deque()
         self.pending_bullets_queue: deque[bytes] = deque()
         self.walls_changed: bool = False
+        
+        # Team counters for display
+        self.team_a_count = 0
+        self.team_b_count = 0
+        self.team_counter_label = None
 
     # Lifecycle
 
@@ -66,6 +72,24 @@ class SceneGameplay(Scene):
                 walls_config_file=self.walls_config_file,
             )
         )
+        
+        # Add team counter display
+        from client.display.batch_object import BatchObject
+        counter_obj = BatchObject(self.batch)
+        self.team_counter_label = counter_obj.register_sub_object(
+            Label(
+                "Team A: 0  |  Team B: 0",
+                x=LOGICAL_SCREEN_WIDTH // 2,
+                y=LOGICAL_SCREEN_HEIGHT - 30,
+                anchor_x="center",
+                anchor_y="center",
+                font_size=16,
+                color=(255, 255, 255, 255),
+                batch=self.batch,
+                group=Group(order=10),
+            )
+        )
+        self.add_to_batch(counter_obj)
 
     def helper_update(self, dt: float) -> None:
         """
@@ -199,6 +223,9 @@ class SceneGameplay(Scene):
         for entity_id in removed_ids:
             self.display_entities[entity_id].delete()
             del self.display_entities[entity_id]
+        
+        # Update team counters
+        self._update_team_counts(entities_list)
 
     def apply_bullets_update(self, packed_data: bytes) -> None:
         """
@@ -257,3 +284,24 @@ class SceneGameplay(Scene):
         """Refresh field-of-view visualization for all entities."""
         for display_entity in self.display_entities.values():
             display_entity.update_fov_polygon()
+    
+    def _update_team_counts(self, entities_list) -> None:
+        """Update team alive counters."""
+        from common.states.state_entity import Team
+        
+        team_a = sum(1 for e in entities_list if e.team == Team.TEAM_A)
+        team_b = sum(1 for e in entities_list if e.team == Team.TEAM_B)
+        
+        self.team_a_count = team_a
+        self.team_b_count = team_b
+        
+        if self.team_counter_label:
+            self.team_counter_label.text = f"Team A: {team_a}  |  Team B: {team_b}"
+            
+            # Check for winner
+            if team_a == 0 and team_b > 0:
+                self.team_counter_label.text = "TEAM B WINS!"
+                self.team_counter_label.color = (255, 100, 100, 255)
+            elif team_b == 0 and team_a > 0:
+                self.team_counter_label.text = "TEAM A WINS!"
+                self.team_counter_label.color = (100, 200, 255, 255)

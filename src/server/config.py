@@ -10,6 +10,8 @@ import math
 
 # Available AI strategies
 from server.strategy.random_strategy import RandomStrategy
+from server.strategy.aggressive_survival_strategy import AggressiveSurvivalStrategy
+from server.strategy.koth_strategy import KOTHStrategy
 
 
 # ============================================================================
@@ -18,38 +20,49 @@ from server.strategy.random_strategy import RandomStrategy
 
 # Agent properties
 DEFAULT_AGENT_HEALTH = 100.0
-DEFAULT_AGENT_DAMAGE = 20.0
-DEFAULT_AGENT_SPEED = 50.0
+DEFAULT_AGENT_DAMAGE = 25.0  # Increased from 20.0 for faster kills
+DEFAULT_AGENT_SPEED = 80.0  # Increased from 50.0 for faster movement
 
 # Weapon mechanics
-DEFAULT_SHOOT_DURATION = 1.0  # Cooldown between shots (seconds)
-BULLET_SPEED = 100.0  # Pixels per second
-BULLET_SPAWN_OFFSET_RATIO = 1.2  # Ratio compared to r
+DEFAULT_SHOOT_DURATION = 0.8  # Reduced from 1.0 for faster shooting
+BULLET_SPEED = 150.0  # Increased from 100.0 for faster bullets
+BULLET_SPAWN_OFFSET_RATIO = 1.2
 
 # Magazine / reload
-DEFAULT_MAGAZINE_SIZE = 6  # Bullets per magazine
-DEFAULT_RELOAD_DURATION = 2.0  # Seconds to reload a magazine
+DEFAULT_MAGAZINE_SIZE = 8  # Increased from 6
+DEFAULT_RELOAD_DURATION = 1.5  # Reduced from 2.0 for faster reloads
 
 # Agent behavior
-AGENT_GUN_ROTATION_SPEED = 2.0 * math.pi / 5.0  # Radians per second
-DETECTION_INTERVAL = 5  # Frames between enemy detection scans
+AGENT_GUN_ROTATION_SPEED = 2.0 * math.pi / 3.0  # Faster gun rotation (was /5.0)
+DETECTION_INTERVAL = 2  # Reduced from 5 for more frequent enemy detection
 
-# Game setup
-# Format: (x, y, strategy_class)
-# Each tuple defines spawn position and AI strategy for that agent
+# Game setup - SURVIVAL MODE (3 agents per team)
 TEAM_A_SPAWNS = [
-    (160.0, 120.0, RandomStrategy),
-    (160.0, 600.0, RandomStrategy),
-    (320.0, 480.0, RandomStrategy),
+    (160.0, 120.0, AggressiveSurvivalStrategy),
+    (160.0, 600.0, AggressiveSurvivalStrategy),
+    (320.0, 360.0, AggressiveSurvivalStrategy),
 ]
 
 TEAM_B_SPAWNS = [
-    (1120.0, 100.0, RandomStrategy),
-    (1120.0, 650.0, RandomStrategy),
-    (960.0, 480.0, RandomStrategy),
+    (1120.0, 100.0, AggressiveSurvivalStrategy),
+    (1120.0, 650.0, AggressiveSurvivalStrategy),
+    (960.0, 360.0, AggressiveSurvivalStrategy),
 ]
 
-REQUIRED_CLIENTS_TO_START = 2  # Minimum players to begin game
+# Game setup - KOTH MODE (3 agents per team)
+TEAM_A_SPAWNS_KOTH = [
+    (200.0, 200.0, KOTHStrategy),
+    (200.0, 520.0, KOTHStrategy),
+    (400.0, 360.0, KOTHStrategy),
+]
+
+TEAM_B_SPAWNS_KOTH = [
+    (1080.0, 200.0, KOTHStrategy),
+    (1080.0, 520.0, KOTHStrategy),
+    (880.0, 360.0, KOTHStrategy),
+]
+
+REQUIRED_CLIENTS_TO_START = 1  # Changed to 1 so you can test alone
 
 
 # ============================================================================

@@ -14,6 +14,10 @@ from common.config import (
     MSG_TYPE_BULLETS,
     MSG_TYPE_CLIENT_READY,
     MSG_TYPE_START_GAME,
+    MSG_TYPE_KOTH_STATE,
+    MSG_TYPE_MODE_SELECTED,
+    GAME_MODE_KOTH,
+    GAME_MODE_SURVIVAL,
 )
 from common.logger import get_logger
 
@@ -46,6 +50,8 @@ class ClientNetwork:
         self._connected = False
         # ensure we only enqueue a ready message once per client instance
         self._ready_sent = False
+        # Track selected game mode
+        self.selected_mode = None
 
     # Connection management
 
@@ -117,6 +123,7 @@ class ClientNetwork:
             # Server confirmed mode selection
             if len(data) >= 2:
                 mode = data[1]
+                self.selected_mode = mode  # Store the mode
                 mode_name = "KOTH" if mode == GAME_MODE_KOTH else "Survival"
                 logger.info("Server confirmed mode: %s", mode_name)
         elif msg_type == MSG_TYPE_START_GAME:
@@ -125,10 +132,7 @@ class ClientNetwork:
                 import sys
                 from pyglet.clock import schedule_once
                 
-                # Determine which scene to switch to based on current mode
-                # For now, we'll use the scene that was created
-                # (The unified approach will use the same scene for both)
-                
+                # Determine which scene to switch to based on selected mode
                 def _attempt_switch(attempt: int, dt: float) -> None:
                     try:
                         main_mod_inner = sys.modules.get("__main__")
@@ -144,10 +148,16 @@ class ClientNetwork:
                                 window_instance_inner = None
                         
                         if window_instance_inner and getattr(window_instance_inner, "scene_manager", None):
-                            # Try to determine which scene to use
-                            # For simplicity, use gameplay scene (could be enhanced)
-                            window_instance_inner.scene_manager.switch_to("gameplay")
-                            logger.info("Switched to gameplay scene")
+                            # Switch to correct scene based on mode
+                            if self.selected_mode == GAME_MODE_KOTH:
+                                scene_name = "gameplay_koth"
+                                logger.info("Switching to KOTH gameplay scene")
+                            else:
+                                scene_name = "gameplay"
+                                logger.info("Switching to Survival gameplay scene")
+                            
+                            window_instance_inner.scene_manager.switch_to(scene_name)
+                            logger.info("Switched to %s scene", scene_name)
                         else:
                             if attempt < 10:
                                 schedule_once(lambda dt: _attempt_switch(attempt + 1, dt), 0.05)
@@ -188,4 +198,4 @@ class ClientNetwork:
 
         self._ready_sent = True
         self._send_queue.put(bytes([MSG_TYPE_CLIENT_READY]))
-    logger.info("Enqueued ready message")
+        logger.info("Enqueued ready message")

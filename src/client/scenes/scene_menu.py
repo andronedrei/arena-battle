@@ -36,7 +36,7 @@ class SceneMenu(Scene):
         )
         self.title.register_sub_object(title_label)
 
-        # Buttons (Survival, Option2, Option3)
+        # Buttons (Survival, King of the Hill, Option3)
         btn_w = 300
         btn_h = 48
         center_x = LOGICAL_SCREEN_WIDTH // 2
@@ -126,31 +126,25 @@ class SceneMenu(Scene):
                         except Exception as e:
                             logger.exception("[Menu] Error sending mode/ready: %s", e)
                 
-                elif name == "Option2":  # KOTH
-                    # Change label first time
-                    if btn["orig_text"] == "Option2":
-                        btn["label"].text = "King of the Hill"
-                        btn["orig_text"] = "King of the Hill"
-                    else:
-                        # Update UI
-                        btn["label"].text = "Waiting for players..."
-                        btn["rect"].color = (100, 140, 100)
-                        btn["disabled"] = True
-                        
-                        # Send mode selection + ready
-                        if network_instance:
-                            try:
-                                # Send mode selection
-                                network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_KOTH]))
-                                # Send ready
-                                network_instance.send_ready()
-                                logger.info("[Menu] Sent KOTH mode selection + ready")
-                            except Exception as e:
-                                logger.exception("[Menu] Error sending mode/ready: %s", e)
+                elif name == "King of the Hill":
+                    # Update UI
+                    btn["label"].text = "Waiting for players..."
+                    btn["rect"].color = (100, 140, 100)
+                    btn["disabled"] = True
+                    
+                    # Send mode selection + ready
+                    if network_instance:
+                        try:
+                            # Send mode selection
+                            network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_KOTH]))
+                            # Send ready
+                            network_instance.send_ready()
+                            logger.info("[Menu] Sent KOTH mode selection + ready")
+                        except Exception as e:
+                            logger.exception("[Menu] Error sending mode/ready: %s", e)
                 
                 else:
                     # Not implemented
                     if not btn.get("disabled"):
                         btn["label"].text = btn["orig_text"] + " (Not implemented)"
                         btn["disabled"] = True
-            

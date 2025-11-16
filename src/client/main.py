@@ -47,9 +47,32 @@ def main() -> None:
     except ValueError:
         return
     
-    # Start unified network client
-    # For now, use gameplay scene (server will handle mode switching)
-    network = ClientNetwork(scene_gameplay)
+    # Create a wrapper that routes to the active scene
+    class SceneRouter:
+        """Routes network updates to the currently active scene."""
+        def __init__(self, window_manager):
+            self.window = window_manager
+        
+        def on_entities_update(self, data):
+            if self.window.scene_manager.cur_scene_instance:
+                self.window.scene_manager.cur_scene_instance.on_entities_update(data)
+        
+        def on_walls_update(self, data):
+            if self.window.scene_manager.cur_scene_instance:
+                self.window.scene_manager.cur_scene_instance.on_walls_update(data)
+        
+        def on_bullets_update(self, data):
+            if self.window.scene_manager.cur_scene_instance:
+                self.window.scene_manager.cur_scene_instance.on_bullets_update(data)
+        
+        def on_koth_update(self, data):
+            if self.window.scene_manager.cur_scene_instance:
+                if hasattr(self.window.scene_manager.cur_scene_instance, 'on_koth_update'):
+                    self.window.scene_manager.cur_scene_instance.on_koth_update(data)
+    
+    # Start unified network client with router
+    scene_router = SceneRouter(window)
+    network = ClientNetwork(scene_router)
     network_instance = network
     network.start()
     

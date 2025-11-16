@@ -310,7 +310,7 @@ class NetworkManagerUnified:
                 clients_snapshot = list(self.clients.keys())
                 for c in clients_snapshot:
                     try:
-                        await c.close()
+                        await c.close(1000)
                     except Exception:
                         logger.exception("Error closing client websocket")
 

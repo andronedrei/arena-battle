@@ -1,7 +1,7 @@
 """
-KOTH Game Manager - Server-side implementation.
+KOTH Game Manager - DEBUG VERSION with extensive logging.
 
-Manages zone control, scoring, and win conditions for King of the Hill mode.
+This version adds comprehensive logging to help identify why scoring doesn't work.
 """
 
 import math
@@ -32,11 +32,14 @@ from common.koth_config import (
     KOTH_MAX_DURATION,
 )
 from common.states.state_koth import StateKOTH, KOTHZoneStatus
+from common.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class GameManagerKOTH:
     """
-    Server-side KOTH game manager.
+    Server-side KOTH game manager - DEBUG VERSION.
     
     Extends base game logic with zone control, scoring, and win conditions.
     """
@@ -48,6 +51,10 @@ class GameManagerKOTH:
         Args:
             wall_config_file: Path to walls configuration file.
         """
+        logger.info("=" * 80)
+        logger.info("INITIALIZING GameManagerKOTH - DEBUG VERSION")
+        logger.info("=" * 80)
+        
         # World state
         self.walls_state = StateWalls(
             grid_unit=GRID_UNIT,
@@ -66,6 +73,20 @@ class GameManagerKOTH:
         self.koth_state = StateKOTH()
         self.scoring_timer = 0.0
         
+        # Debug counters
+        self.debug_update_count = 0
+        self.debug_zone_checks = 0
+        self.debug_scoring_attempts = 0
+        
+        logger.info(f"Zone config: shape={KOTH_ZONE_SHAPE}, center=({KOTH_ZONE_CENTER_X}, {KOTH_ZONE_CENTER_Y})")
+        if KOTH_ZONE_SHAPE == "circle":
+            logger.info(f"  Circle radius={KOTH_ZONE_RADIUS}")
+        else:
+            logger.info(f"  Rectangle: ({KOTH_ZONE_RECT_X}, {KOTH_ZONE_RECT_Y}) size=({KOTH_ZONE_RECT_WIDTH}x{KOTH_ZONE_RECT_HEIGHT})")
+        logger.info(f"Scoring: {KOTH_POINTS_PER_SECOND} pts/sec, interval={KOTH_SCORING_INTERVAL}s")
+        logger.info(f"Win conditions: {KOTH_MAX_POINTS} points OR {KOTH_MAX_DURATION}s")
+        logger.info("=" * 80)
+        
     # Zone geometry
     
     def is_agent_in_zone(self, agent: Agent) -> bool:
@@ -82,13 +103,22 @@ class GameManagerKOTH:
             dx = agent.state.x - KOTH_ZONE_CENTER_X
             dy = agent.state.y - KOTH_ZONE_CENTER_Y
             distance_sq = dx * dx + dy * dy
-            return distance_sq <= KOTH_ZONE_RADIUS * KOTH_ZONE_RADIUS
+            in_zone = distance_sq <= KOTH_ZONE_RADIUS * KOTH_ZONE_RADIUS
+            
+            # Debug logging every 100 checks
+            if self.debug_zone_checks % 100 == 0:
+                distance = math.sqrt(distance_sq)
+                logger.debug(f"Agent {agent.state.id_entity} at ({agent.state.x:.1f}, {agent.state.y:.1f}), distance={distance:.1f}, in_zone={in_zone}")
+            self.debug_zone_checks += 1
+            
+            return in_zone
         
         elif KOTH_ZONE_SHAPE == "rectangle":
-            return (
+            in_zone = (
                 KOTH_ZONE_RECT_X <= agent.state.x <= KOTH_ZONE_RECT_X + KOTH_ZONE_RECT_WIDTH
                 and KOTH_ZONE_RECT_Y <= agent.state.y <= KOTH_ZONE_RECT_Y + KOTH_ZONE_RECT_HEIGHT
             )
+            return in_zone
         
         return False
     
@@ -103,6 +133,11 @@ class GameManagerKOTH:
         team_a_count = 0
         team_b_count = 0
         
+        team_a_agents = []
+        team_b_agents = []
+        
+        logger.debug(f"[Tick {self.tick_count}] Checking zone control, total agents={len(self.agents)}")
+        
         for agent in self.agents.values():
             if not agent.is_alive():
                 continue
@@ -110,10 +145,14 @@ class GameManagerKOTH:
             if self.is_agent_in_zone(agent):
                 if agent.state.team == Team.TEAM_A:
                     team_a_count += 1
+                    team_a_agents.append(agent.state.id_entity)
                 elif agent.state.team == Team.TEAM_B:
                     team_b_count += 1
+                    team_b_agents.append(agent.state.id_entity)
         
         # Determine zone status
+        old_status = self.koth_state.zone_status
+        
         if team_a_count > 0 and team_b_count > 0:
             self.koth_state.zone_status = KOTHZoneStatus.CONTESTED
         elif team_a_count > 0:
@@ -122,12 +161,17 @@ class GameManagerKOTH:
             self.koth_state.zone_status = KOTHZoneStatus.TEAM_B
         else:
             self.koth_state.zone_status = KOTHZoneStatus.NEUTRAL
+        
+        # Log zone status changes or every 60 ticks
+        if old_status != self.koth_state.zone_status or self.tick_count % 60 == 0:
+            status_names = {0: "NEUTRAL", 1: "TEAM_A", 2: "TEAM_B", 3: "CONTESTED"}
+            logger.info(f"[Tick {self.tick_count}] Zone status: {status_names[self.koth_state.zone_status]} (Team A: {team_a_count} agents {team_a_agents}, Team B: {team_b_count} agents {team_b_agents})")
     
     # Scoring
     
     def update_scoring(self, dt: float) -> None:
         """
-        Update team scores based on zone control.
+        Update team scores based on zone control - FIXED VERSION.
         
         Awards points at intervals defined by KOTH_SCORING_INTERVAL.
         
@@ -136,23 +180,31 @@ class GameManagerKOTH:
         """
         self.scoring_timer += dt
         
-        if self.scoring_timer >= KOTH_SCORING_INTERVAL:
-            self.scoring_timer = 0.0
+        # Log scoring state every 60 ticks
+        if self.tick_count % 60 == 0:
+            logger.info(f"[Tick {self.tick_count}] Scoring timer: {self.scoring_timer:.3f}s, Team A: {self.koth_state.team_a_score:.1f}, Team B: {self.koth_state.team_b_score:.1f}")
+        
+        while self.scoring_timer >= KOTH_SCORING_INTERVAL:
+            self.scoring_timer -= KOTH_SCORING_INTERVAL
+            self.debug_scoring_attempts += 1
             
             # Award points based on zone control
             if self.koth_state.zone_status == KOTHZoneStatus.TEAM_A:
                 points = KOTH_POINTS_PER_SECOND * KOTH_SCORING_INTERVAL
                 self.koth_state.team_a_score += points
+                logger.info(f"[Tick {self.tick_count}] ✅ TEAM A SCORED {points:.1f} points! Total: {self.koth_state.team_a_score:.1f}")
             
             elif self.koth_state.zone_status == KOTHZoneStatus.TEAM_B:
                 points = KOTH_POINTS_PER_SECOND * KOTH_SCORING_INTERVAL
                 self.koth_state.team_b_score += points
+                logger.info(f"[Tick {self.tick_count}] ✅ TEAM B SCORED {points:.1f} points! Total: {self.koth_state.team_b_score:.1f}")
             
             elif self.koth_state.zone_status == KOTHZoneStatus.CONTESTED:
-                # No points awarded if contested (based on config)
+                logger.debug(f"[Tick {self.tick_count}] Zone CONTESTED - no points awarded")
                 if not KOTH_CONTESTED_BLOCKS_SCORING:
-                    # Could implement majority-wins logic here if needed
                     pass
+            else:
+                logger.debug(f"[Tick {self.tick_count}] Zone NEUTRAL - no points awarded")
     
     # Win conditions
     
@@ -165,19 +217,24 @@ class GameManagerKOTH:
         """
         # Check point limit
         if self.koth_state.team_a_score >= KOTH_MAX_POINTS:
+            logger.info(f"🏆 TEAM A WINS by points! ({self.koth_state.team_a_score:.1f} >= {KOTH_MAX_POINTS})")
             return Team.TEAM_A
         if self.koth_state.team_b_score >= KOTH_MAX_POINTS:
+            logger.info(f"🏆 TEAM B WINS by points! ({self.koth_state.team_b_score:.1f} >= {KOTH_MAX_POINTS})")
             return Team.TEAM_B
         
         # Check time limit
         if KOTH_MAX_DURATION > 0 and self.koth_state.time_elapsed >= KOTH_MAX_DURATION:
+            logger.info(f"⏱️  TIME LIMIT REACHED ({self.koth_state.time_elapsed:.1f}s >= {KOTH_MAX_DURATION}s)")
             # Team with higher score wins
             if self.koth_state.team_a_score > self.koth_state.team_b_score:
+                logger.info(f"🏆 TEAM A WINS by time! ({self.koth_state.team_a_score:.1f} > {self.koth_state.team_b_score:.1f})")
                 return Team.TEAM_A
             elif self.koth_state.team_b_score > self.koth_state.team_a_score:
+                logger.info(f"🏆 TEAM B WINS by time! ({self.koth_state.team_b_score:.1f} > {self.koth_state.team_a_score:.1f})")
                 return Team.TEAM_B
             else:
-                # Tie - could implement tiebreaker logic here
+                logger.info(f"🤝 DRAW! Both teams have {self.koth_state.team_a_score:.1f} points")
                 return Team.NEUTRAL
         
         return None
@@ -186,7 +243,10 @@ class GameManagerKOTH:
     
     def spawn_test_agents(self) -> None:
         """Spawn agents for both teams using KOTH-specific spawn points."""
+        logger.info("Spawning KOTH agents...")
+        
         # Spawn Team A with KOTH strategy
+        team_a_count = 0
         for x, y, strategy_class in TEAM_A_SPAWNS_KOTH:
             agent = Agent(
                 walls_state=self.walls_state,
@@ -198,8 +258,10 @@ class GameManagerKOTH:
                 team=Team.TEAM_A,
             )
             self.agents[agent.state.id_entity] = agent
+            team_a_count += 1
         
         # Spawn Team B with KOTH strategy
+        team_b_count = 0
         for x, y, strategy_class in TEAM_B_SPAWNS_KOTH:
             agent = Agent(
                 walls_state=self.walls_state,
@@ -211,6 +273,10 @@ class GameManagerKOTH:
                 team=Team.TEAM_B,
             )
             self.agents[agent.state.id_entity] = agent
+            team_b_count += 1
+        
+        logger.info(f"✅ Spawned {team_a_count} Team A agents and {team_b_count} Team B agents")
+        logger.info(f"Total agents in game: {len(self.agents)}")
     
     def update(self, dt: float) -> None:
         """
@@ -221,9 +287,17 @@ class GameManagerKOTH:
         Args:
             dt: Delta time in seconds.
         """
+        self.debug_update_count += 1
+        
+        # Log game state every 60 ticks
+        if self.tick_count % 60 == 0:
+            logger.info(f"[Tick {self.tick_count}] Game state: time={self.koth_state.time_elapsed:.1f}s, game_over={self.koth_state.game_over}, agents={len(self.agents)}")
+        
         # Update game timer
         if not self.koth_state.game_over:
             self.koth_state.time_elapsed += dt
+        else:
+            logger.warning(f"[Tick {self.tick_count}] Game is OVER! time_elapsed not updating.")
         
         # Update bullets
         for bullet in self.bullets.values():
@@ -271,6 +345,7 @@ class GameManagerKOTH:
             if not agent.is_alive()
         ]
         for aid in dead_agents:
+            logger.info(f"[Tick {self.tick_count}] Agent {aid} died")
             for other_agent in self.agents.values():
                 other_agent.detected_enemies.discard(aid)
             del self.agents[aid]
@@ -283,8 +358,12 @@ class GameManagerKOTH:
             # Check win condition
             winner = self.check_win_condition()
             if winner is not None:
+                logger.info(f"🎉 GAME OVER! Winner: {winner}")
                 self.koth_state.game_over = True
                 self.koth_state.winner_team = winner
                 self.is_running = False
+        else:
+            if self.tick_count % 60 == 0:
+                logger.warning(f"[Tick {self.tick_count}] Game is already over, skipping KOTH updates")
         
         self.tick_count += 1

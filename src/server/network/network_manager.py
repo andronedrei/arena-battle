@@ -240,6 +240,51 @@ class NetworkManagerUnified:
         return True
     
     
+    # Game loop
+    
+    async def _game_loop(self) -> None:
+        """Main game loop with separated simulation and broadcast rates."""
+        if self.game_manager is None:
+            logger.error("Cannot start game loop - game_manager is None")
+            return
+        
+        self.game_manager.is_running = True
+        
+        sim_dt = 1.0 / SIMULATION_TICK_RATE
+        broadcast_interval = 1.0 / NETWORK_UPDATE_RATE
+        
+        # CRITICA: Spawn agents pentru modul curent
+        self.game_manager.spawn_test_agents()
+        logger.info("Spawned agents for %s mode", "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival")
+        
+        next_tick = time.perf_counter()
+        time_since_broadcast = 0.0
+        
+        try:
+            while (
+                self.game_manager.is_running
+                and len(self.clients) >= self.required_clients
+            ):
+                current_time = time.perf_counter()
+                
+                if current_time >= next_tick:
+                    self.game_manager.update(sim_dt)
+                    time_since_broadcast += sim_dt
+                    
+                    if time_since_broadcast >= broadcast_interval:
+                        await self._broadcast()
+                        time_since_broadcast = 0.0
+                    
+                    next_tick += sim_dt
+                else:
+                    sleep_time = max(0, next_tick - current_time)
+                    await asyncio.sleep(sleep_time)
+        
+        except asyncio.CancelledError:
+            self.game_manager.is_running = False
+            logger.info("Game loop cancelled")
+            
+            
     # Broadcasting
     
     async def _send_to_all(self, msg: bytes) -> None:

@@ -15,6 +15,7 @@ from common.config import (
     MSG_TYPE_ENTITIES,
     MSG_TYPE_CLIENT_READY,
     MSG_TYPE_START_GAME,
+        MSG_TYPE_GAME_END,
     MSG_TYPE_SELECT_MODE,
     MSG_TYPE_MODE_SELECTED,
     GAME_MODE_SURVIVAL,
@@ -283,6 +284,41 @@ class NetworkManagerUnified:
         except asyncio.CancelledError:
             self.game_manager.is_running = False
             logger.info("Game loop cancelled")
+        finally:
+            # Notify clients that the game ended so they can see winner
+            try:
+                winner = 0
+                if self.game_manager and getattr(self.game_manager, "winner_team", None) is not None:
+                    try:
+                        winner = int(self.game_manager.winner_team)
+                    except Exception:
+                        winner = 0
+
+                logger.info("Game ended - broadcasting GAME_END (winner=%s) to clients", winner)
+                # Send winner as second byte
+                await self._send_to_all(bytes([MSG_TYPE_GAME_END, winner]))
+            except Exception:
+                logger.exception("Failed to broadcast GAME_END")
+
+            # Wait a short delay so clients can show the message, then disconnect them
+            try:
+                disconnect_delay = 5.0
+                logger.info("Waiting %.1fs before disconnecting clients", disconnect_delay)
+                await asyncio.sleep(disconnect_delay)
+
+                # Close all client websockets
+                clients_snapshot = list(self.clients.keys())
+                for c in clients_snapshot:
+                    try:
+                        await c.close()
+                    except Exception:
+                        logger.exception("Error closing client websocket")
+
+                # Clear client list
+                self.clients.clear()
+                logger.info("All clients disconnected after game end")
+            except Exception:
+                logger.exception("Error during post-game client disconnect sequence")
             
             
     # Broadcasting

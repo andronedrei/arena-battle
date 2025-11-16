@@ -36,12 +36,12 @@ class SceneMenu(Scene):
         )
         self.title.register_sub_object(title_label)
 
-        # Buttons (Survival, King of the Hill, Option3)
+        # Buttons (Survival, King of the Hill, Option3, Exit)
         btn_w = 300
         btn_h = 48
         center_x = LOGICAL_SCREEN_WIDTH // 2
         start_y = LOGICAL_SCREEN_HEIGHT // 2 + 40
-        labels = ["Survival", "King of the Hill", "Option3"]
+        labels = ["Survival", "King of the Hill", "Option3", "Exit"]
 
         for i, text in enumerate(labels):
             bx = center_x - btn_w // 2
@@ -143,6 +143,27 @@ class SceneMenu(Scene):
                         except Exception as e:
                             logger.exception("[Menu] Error sending mode/ready: %s", e)
                 
+                elif name == "Exit":
+                    # Stop network and exit the application
+                    btn["label"].text = "Exiting..."
+                    btn["rect"].color = (160, 80, 80)
+                    btn["disabled"] = True
+
+                    try:
+                        # Stop network if available
+                        if network_instance:
+                            try:
+                                network_instance.stop()
+                                logger.info("[Menu] Stopped network_instance before exit")
+                            except Exception:
+                                logger.exception("[Menu] Error stopping network_instance")
+
+                        # Exit pyglet application (run() will return and client.main will cleanup)
+                        import pyglet.app as _pyglet_app
+                        _pyglet_app.exit()
+                    except Exception as e:
+                        logger.exception("[Menu] Error during exit: %s", e)
+
                 else:
                     # Not implemented
                     if not btn.get("disabled"):

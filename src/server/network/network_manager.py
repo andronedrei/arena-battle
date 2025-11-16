@@ -67,12 +67,16 @@ class NetworkManagerUnified:
         """
         self.app = Quart(__name__)
         self.wall_config_file = wall_config_file
-        self.game_manager = None  # Will be created when mode is selected
-        self.game_mode = None  # Will be set by first client
-        self.clients: dict = {}  # ws -> ready_bool
+        self.game_manager = None
+        self.game_mode = None
+        
+        # MODIFICAT: Track individual client states
+        self.clients: dict = {}  # ws -> {'ready': bool, 'mode': int|None}
+        
         self.required_clients = REQUIRED_CLIENTS_TO_START
         self.game_task: asyncio.Task | None = None
-        self.mode_locked = False  # Prevents mode changes after selection
+        
+        # ȘTERS: self.mode_locked - nu mai avem nevoie
         
         # Register WebSocket endpoint
         @self.app.websocket(WEBSOCKET_ROUTE)
@@ -84,7 +88,8 @@ class NetworkManagerUnified:
     async def handle_client(self) -> None:
         """Handle individual client connection lifecycle."""
         ws = websocket._get_current_object()
-        self.clients[ws] = False
+
+        self.clients[ws] = {'ready': False, 'mode': None}
         
         try:
             client_id = getattr(ws, 'id', None) or id(ws)
@@ -92,12 +97,6 @@ class NetworkManagerUnified:
             client_id = id(ws)
         
         logger.info("Client connected: %s (total=%d)", client_id, len(self.clients))
-        
-        # Send current mode if already selected
-        if self.game_mode is not None:
-            await ws.send(bytes([MSG_TYPE_MODE_SELECTED, self.game_mode]))
-            logger.info("Informed client %s of selected mode: %s", 
-                       client_id, "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival")
         
         try:
             while True:
@@ -121,17 +120,14 @@ class NetworkManagerUnified:
                     
                     # Handle mode selection
                     if msg_type == MSG_TYPE_SELECT_MODE and len(data) >= 2:
-                        if not self.mode_locked:
-                            selected_mode = data[1] if isinstance(data, bytes) else ord(data[1])
-                            await self._handle_mode_selection(selected_mode, client_id)
-                        else:
-                            logger.warning("Client %s tried to change mode after lock", client_id)
+                        selected_mode = data[1] if isinstance(data, bytes) else ord(data[1])
+                        await self._handle_mode_selection(selected_mode, client_id, ws)
                     
                     # Handle ready message
                     elif msg_type == MSG_TYPE_CLIENT_READY:
-                        self.clients[ws] = True
+                        self.clients[ws]['ready'] = True
                         
-                        ready_count = sum(1 for v in self.clients.values() if v)
+                        ready_count = sum(1 for c in self.clients.values() if c['ready'])
                         connected_count = len(self.clients)
                         logger.info(
                             "Client %s READY (%d/%d) required=%d",
@@ -141,16 +137,12 @@ class NetworkManagerUnified:
                             self.required_clients,
                         )
                         
-                        # Check if we can start
-                        can_start = (
-                            ready_count >= self.required_clients
-                            or (connected_count > 0 and ready_count == connected_count)
-                        )
+                        can_start = await self._check_can_start()
                         
                         if can_start and not self.game_task and self.game_manager is not None:
                             logger.info("Starting game: mode=%s ready=%d connected=%d", 
-                                       "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival",
-                                       ready_count, connected_count)
+                                    "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival",
+                                    ready_count, connected_count)
                             await self._send_to_all(bytes([MSG_TYPE_START_GAME]))
                             self.game_task = asyncio.create_task(self._game_loop())
         
@@ -168,77 +160,85 @@ class NetworkManagerUnified:
                 if self.game_manager:
                     self.game_manager.is_running = False
     
-    async def _handle_mode_selection(self, mode: int, client_id) -> None:
+    async def _handle_mode_selection(self, mode: int, client_id, ws) -> None:
         """
         Handle game mode selection from client.
         
         Args:
             mode: Selected game mode (GAME_MODE_SURVIVAL or GAME_MODE_KOTH).
             client_id: ID of client that selected the mode.
+            ws: WebSocket of the client.
         """
-        if self.game_mode is not None:
-            logger.warning("Mode already selected, ignoring new selection")
-            return
-        
         mode_name = "KOTH" if mode == GAME_MODE_KOTH else "Survival"
         logger.info("Client %s selected mode: %s", client_id, mode_name)
         
-        # Set mode and lock it
-        self.game_mode = mode
-        self.mode_locked = True
+        # Store this client's mode selection
+        self.clients[ws]['mode'] = mode
         
-        # Create appropriate game manager
-        if mode == GAME_MODE_KOTH:
-            self.game_manager = GameManagerKOTH(self.wall_config_file)
-            logger.info("Created GameManagerKOTH")
-        else:  # GAME_MODE_SURVIVAL or fallback
-            self.game_manager = GameManager(self.wall_config_file)
-            logger.info("Created GameManager (Survival)")
+        # Check if all clients have selected a mode
+        modes_selected = [c['mode'] for c in self.clients.values() if c['mode'] is not None]
         
-        # Notify all clients of selected mode
-        await self._send_to_all(bytes([MSG_TYPE_MODE_SELECTED, mode]))
-        logger.info("Notified all clients of mode selection: %s", mode_name)
-    
-    # Game loop
-    
-    async def _game_loop(self) -> None:
-        """Main game loop with separated simulation and broadcast rates."""
-        if self.game_manager is None:
-            logger.error("Cannot start game loop: no game manager")
+        if len(modes_selected) == 0:
             return
         
-        self.game_manager.is_running = True
-        
-        sim_dt = 1.0 / SIMULATION_TICK_RATE
-        broadcast_interval = 1.0 / NETWORK_UPDATE_RATE
-        
-        self.game_manager.spawn_test_agents()
-        
-        next_tick = time.perf_counter()
-        time_since_broadcast = 0.0
-        
-        try:
-            while (
-                self.game_manager.is_running
-                and len(self.clients) >= self.required_clients
-            ):
-                current_time = time.perf_counter()
+        # Check if all selected modes are the same
+        if len(set(modes_selected)) == 1:
+            # All clients agree on the mode!
+            agreed_mode = modes_selected[0]
+            
+            # Create game manager if not exists or mode changed
+            if self.game_mode != agreed_mode:
+                self.game_mode = agreed_mode
                 
-                if current_time >= next_tick:
-                    self.game_manager.update(sim_dt)
-                    time_since_broadcast += sim_dt
-                    
-                    if time_since_broadcast >= broadcast_interval:
-                        await self._broadcast()
-                        time_since_broadcast = 0.0
-                    
-                    next_tick += sim_dt
+                if agreed_mode == GAME_MODE_KOTH:
+                    self.game_manager = GameManagerKOTH(self.wall_config_file)
+                    logger.info("Created GameManagerKOTH - all clients agreed on KOTH")
                 else:
-                    sleep_time = max(0, next_tick - current_time)
-                    await asyncio.sleep(sleep_time)
+                    self.game_manager = GameManager(self.wall_config_file)
+                    logger.info("Created GameManager - all clients agreed on Survival")
+                
+                # Notify all clients of the agreed mode
+                await self._send_to_all(bytes([MSG_TYPE_MODE_SELECTED, agreed_mode]))
+                logger.info("All clients agree on mode: %s", mode_name)
+        else:
+            # Clients have different modes selected - wait for consensus
+            logger.info("Clients have different mode selections - waiting for consensus")
+            logger.debug("Current modes: %s", modes_selected)
+    
+    
+    async def _check_can_start(self) -> bool:
+        """
+        Check if game can start.
         
-        except asyncio.CancelledError:
-            self.game_manager.is_running = False
+        Requirements:
+        - All clients must have selected a mode
+        - All clients must have selected the SAME mode
+        - All clients must be ready
+        - Minimum required_clients must be met
+        
+        Returns:
+            True if game can start, False otherwise.
+        """
+        if len(self.clients) < self.required_clients:
+            return False
+        
+        # Check all clients are ready
+        if not all(c['ready'] for c in self.clients.values()):
+            return False
+        
+        # Check all clients have selected a mode
+        modes = [c['mode'] for c in self.clients.values()]
+        if None in modes:
+            logger.info("Cannot start - not all clients have selected a mode")
+            return False
+        
+        # Check all modes are the same
+        if len(set(modes)) != 1:
+            logger.info("Cannot start - clients selected different modes: %s", modes)
+            return False
+        
+        return True
+    
     
     # Broadcasting
     

@@ -54,21 +54,24 @@ def main() -> None:
             self.window = window_manager
         
         def on_entities_update(self, data):
-            if self.window.scene_manager.cur_scene_instance:
-                self.window.scene_manager.cur_scene_instance.on_entities_update(data)
+            current_scene = self.window.scene_manager.cur_scene_instance
+            if current_scene and hasattr(current_scene, 'on_entities_update'):
+                current_scene.on_entities_update(data)
         
         def on_walls_update(self, data):
-            if self.window.scene_manager.cur_scene_instance:
-                self.window.scene_manager.cur_scene_instance.on_walls_update(data)
+            current_scene = self.window.scene_manager.cur_scene_instance
+            if current_scene and hasattr(current_scene, 'on_walls_update'):
+                current_scene.on_walls_update(data)
         
         def on_bullets_update(self, data):
-            if self.window.scene_manager.cur_scene_instance:
-                self.window.scene_manager.cur_scene_instance.on_bullets_update(data)
+            current_scene = self.window.scene_manager.cur_scene_instance
+            if current_scene and hasattr(current_scene, 'on_bullets_update'):
+                current_scene.on_bullets_update(data)
         
         def on_koth_update(self, data):
-            if self.window.scene_manager.cur_scene_instance:
-                if hasattr(self.window.scene_manager.cur_scene_instance, 'on_koth_update'):
-                    self.window.scene_manager.cur_scene_instance.on_koth_update(data)
+            current_scene = self.window.scene_manager.cur_scene_instance
+            if current_scene and hasattr(current_scene, 'on_koth_update'):
+                current_scene.on_koth_update(data)
     
     # Start unified network client with router
     scene_router = SceneRouter(window)

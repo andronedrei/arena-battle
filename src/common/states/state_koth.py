@@ -1,5 +1,5 @@
 """
-KOTH game state for network transmission.
+KOTH game state for network transmission - FIXED VERSION.
 
 Tracks team scores, zone control, and game timer.
 """
@@ -61,7 +61,15 @@ class StateKOTH:
                 [game_over:uint8][winner_team:uint8]
         
         Returns:
-            Packed binary data (18 bytes).
+            Packed binary data (15 bytes).
+            
+        NOTE: Original comment said 18 bytes but actual size is 15!
+        Format "!ffBfBB" produces:
+        - float (4 bytes) + float (4 bytes) = 8 bytes
+        - uint8 (1 byte) = 1 byte
+        - float (4 bytes) = 4 bytes  
+        - uint8 (1 byte) + uint8 (1 byte) = 2 bytes
+        Total = 15 bytes
         """
         return struct.pack(
             "!ffBfBB",
@@ -87,9 +95,9 @@ class StateKOTH:
         Raises:
             ValueError: If packet format is invalid.
         """
-        if len(data) != 18:
+        if len(data) != 15:
             raise ValueError(
-                f"Invalid KOTH packet size: expected 18, got {len(data)}"
+                f"Invalid KOTH packet size: expected 15, got {len(data)}"
             )
         
         (

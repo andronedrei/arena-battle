@@ -36,12 +36,12 @@ class SceneMenu(Scene):
         )
         self.title.register_sub_object(title_label)
 
-        # Buttons (Survival, King of the Hill, Option3, Exit)
+        # Buttons (Survival, King of the Hill, Option3)
         btn_w = 300
         btn_h = 48
         center_x = LOGICAL_SCREEN_WIDTH // 2
         start_y = LOGICAL_SCREEN_HEIGHT // 2 + 40
-        labels = ["Survival", "King of the Hill", "Option3", "Exit"]
+        labels = ["Survival", "King of the Hill", "Option3"]
 
         for i, text in enumerate(labels):
             bx = center_x - btn_w // 2
@@ -78,7 +78,7 @@ class SceneMenu(Scene):
         self.cleanup_removed_objects()
 
     def helper_mouse_press(self, logical_x: float, logical_y: float, button: int, modifiers: int) -> None:
-        """Handle clicks on buttons."""
+        """Handle clicks on buttons - FIXED VERSION."""
         logger.debug("[Menu] Mouse press at (%.1f, %.1f), button=%s", logical_x, logical_y, button)
         
         # Import mode constants
@@ -120,6 +120,10 @@ class SceneMenu(Scene):
                         try:
                             # Send mode selection
                             network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_SURVIVAL]))
+                            
+                            network_instance.selected_mode = GAME_MODE_SURVIVAL
+                            logger.info("[Menu] Set local mode to SURVIVAL")
+                            
                             # Send ready
                             network_instance.send_ready()
                             logger.info("[Menu] Sent Survival mode selection + ready")
@@ -137,33 +141,16 @@ class SceneMenu(Scene):
                         try:
                             # Send mode selection
                             network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_KOTH]))
+                            
+                            network_instance.selected_mode = GAME_MODE_KOTH
+                            logger.info("[Menu] Set local mode to KOTH")
+                            
                             # Send ready
                             network_instance.send_ready()
                             logger.info("[Menu] Sent KOTH mode selection + ready")
                         except Exception as e:
                             logger.exception("[Menu] Error sending mode/ready: %s", e)
                 
-                elif name == "Exit":
-                    # Stop network and exit the application
-                    btn["label"].text = "Exiting..."
-                    btn["rect"].color = (160, 80, 80)
-                    btn["disabled"] = True
-
-                    try:
-                        # Stop network if available
-                        if network_instance:
-                            try:
-                                network_instance.stop()
-                                logger.info("[Menu] Stopped network_instance before exit")
-                            except Exception:
-                                logger.exception("[Menu] Error stopping network_instance")
-
-                        # Exit pyglet application (run() will return and client.main will cleanup)
-                        import pyglet.app as _pyglet_app
-                        _pyglet_app.exit()
-                    except Exception as e:
-                        logger.exception("[Menu] Error during exit: %s", e)
-
                 else:
                     # Not implemented
                     if not btn.get("disabled"):

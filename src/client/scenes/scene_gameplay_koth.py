@@ -241,20 +241,30 @@ class SceneGameplayKOTH(Scene):
             return
     
     def apply_koth_update(self, packed_data: bytes) -> None:
-        """Update KOTH visuals from state packet."""
+        """
+        Update KOTH state from network packet.
+        
+        Updates zone visualization and HUD with current game state.
+        
+        Args:
+            packed_data: Serialized KOTH state from server.
+        """
         try:
             koth_state = StateKOTH.unpack(packed_data)
-            
-            # Update zone visual
-            if self.display_koth_zone:
-                self.display_koth_zone.update_status(koth_state.zone_status)
-            
-            # Update HUD
-            if self.display_koth_hud:
-                self.display_koth_hud.update_from_state(koth_state)
-        
-        except ValueError:
+        except ValueError as e:
+            # Invalid packet - log and skip
+            from common.logger import get_logger
+            logger = get_logger(__name__)
+            logger.warning(f"Failed to unpack KOTH state: {e}")
             return
+        
+        # Update zone visualization
+        if self.display_koth_zone:
+            self.display_koth_zone.update_status(koth_state.zone_status)
+        
+        # Update HUD
+        if self.display_koth_hud:
+            self.display_koth_hud.update_from_state(koth_state)
     
     def refresh_all_entity_fov(self) -> None:
         """Refresh FOV visualization for all entities."""

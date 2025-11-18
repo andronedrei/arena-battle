@@ -12,6 +12,7 @@ import math
 from server.strategy.random_strategy import RandomStrategy
 from server.strategy.aggressive_survival_strategy import AggressiveSurvivalStrategy
 from server.strategy.koth_strategy import KOTHStrategy
+from server.strategy.ctf_strategy import CTFStrategy
 
 
 # ============================================================================
@@ -60,6 +61,21 @@ TEAM_B_SPAWNS_KOTH = [
     (1080.0, 200.0, KOTHStrategy),
     (1080.0, 520.0, KOTHStrategy),
     (880.0, 360.0, KOTHStrategy),
+]
+
+# Game setup - CTF MODE (4 agents per team)
+TEAM_A_SPAWNS_CTF = [
+    (150.0, 280.0, CTFStrategy),
+    (150.0, 440.0, CTFStrategy),
+    (250.0, 240.0, CTFStrategy),
+    (250.0, 480.0, CTFStrategy),
+]
+
+TEAM_B_SPAWNS_CTF = [
+    (1130.0, 280.0, CTFStrategy),
+    (1130.0, 440.0, CTFStrategy),
+    (1030.0, 240.0, CTFStrategy),
+    (1030.0, 480.0, CTFStrategy),
 ]
 
 REQUIRED_CLIENTS_TO_START = 1  # Changed to 1 so you can test alone

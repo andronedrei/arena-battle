@@ -6,6 +6,7 @@ from client.network.client_network import ClientNetwork
 from client.scenes.logical_window import LogicalWindow
 from client.scenes.scene_gameplay import SceneGameplay
 from client.scenes.scene_gameplay_koth import SceneGameplayKOTH
+from client.scenes.scene_gameplay_ctf import SceneGameplayCTF
 from client.scenes.scene_menu import SceneMenu
 from common.config import WALL_CONFIG
 from common.logger import setup_logging, get_logger
@@ -34,12 +35,14 @@ def main() -> None:
     # Create scenes for both modes
     scene_gameplay = SceneGameplay(WALL_CONFIG)
     scene_gameplay_koth = SceneGameplayKOTH(WALL_CONFIG)
+    scene_gameplay_ctf = SceneGameplayCTF(WALL_CONFIG)
     scene_menu = SceneMenu()
     
     # Register all scenes
     window.scene_manager.add_scene("menu", scene_menu)
     window.scene_manager.add_scene("gameplay", scene_gameplay)
     window.scene_manager.add_scene("gameplay_koth", scene_gameplay_koth)
+    window.scene_manager.add_scene("gameplay_ctf", scene_gameplay_ctf)
     
     # Start in menu
     try:
@@ -72,6 +75,11 @@ def main() -> None:
             current_scene = self.window.scene_manager.cur_scene_instance
             if current_scene and hasattr(current_scene, 'on_koth_update'):
                 current_scene.on_koth_update(data)
+        
+        def on_ctf_update(self, data):
+            current_scene = self.window.scene_manager.cur_scene_instance
+            if current_scene and hasattr(current_scene, 'on_ctf_update'):
+                current_scene.on_ctf_update(data)
     
     # Start unified network client with router
     scene_router = SceneRouter(window)

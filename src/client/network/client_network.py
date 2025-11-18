@@ -16,9 +16,11 @@ from common.config import (
     MSG_TYPE_START_GAME,
         MSG_TYPE_GAME_END,
     MSG_TYPE_KOTH_STATE,
+    MSG_TYPE_CTF_STATE,
     MSG_TYPE_MODE_SELECTED,
     GAME_MODE_KOTH,
     GAME_MODE_SURVIVAL,
+    GAME_MODE_CTF,
 )
 from common.logger import get_logger
 
@@ -120,12 +122,16 @@ class ClientNetwork:
             # Handle KOTH state if scene supports it
             if hasattr(self.scene, 'on_koth_update'):
                 self.scene.on_koth_update(payload)
+        elif msg_type == MSG_TYPE_CTF_STATE:
+            # Handle CTF state if scene supports it
+            if hasattr(self.scene, 'on_ctf_update'):
+                self.scene.on_ctf_update(payload)
         elif msg_type == MSG_TYPE_MODE_SELECTED:
             # Server confirmed mode selection
             if len(data) >= 2:
                 mode = data[1]
                 self.selected_mode = mode  # Store the mode
-                mode_name = "KOTH" if mode == GAME_MODE_KOTH else "Survival"
+                mode_name = "KOTH" if mode == GAME_MODE_KOTH else ("CTF" if mode == GAME_MODE_CTF else "Survival")
                 logger.info("Server confirmed mode: %s", mode_name)
         elif msg_type == MSG_TYPE_START_GAME:
             logger.info("Received START_GAME from server")
@@ -153,6 +159,9 @@ class ClientNetwork:
                             if self.selected_mode == GAME_MODE_KOTH:
                                 scene_name = "gameplay_koth"
                                 logger.info("Switching to KOTH gameplay scene")
+                            elif self.selected_mode == GAME_MODE_CTF:
+                                scene_name = "gameplay_ctf"
+                                logger.info("Switching to CTF gameplay scene")
                             else:
                                 scene_name = "gameplay"
                                 logger.info("Switching to Survival gameplay scene")

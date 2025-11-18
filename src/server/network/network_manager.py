@@ -20,6 +20,8 @@ from common.config import (
     MSG_TYPE_MODE_SELECTED,
     GAME_MODE_SURVIVAL,
     GAME_MODE_KOTH,
+    GAME_MODE_CTF,
+    MSG_TYPE_CTF_STATE,
     NETWORK_HOST,
     NETWORK_PORT,
     SIMULATION_TICK_RATE,
@@ -30,6 +32,7 @@ from common.states.state_entity import StateEntity
 from server.config import REQUIRED_CLIENTS_TO_START
 from server.gameplay.game_manager import GameManager
 from server.gameplay.game_manager_koth import GameManagerKOTH
+from server.gameplay.game_manager_ctf import GameManagerCTF
 from common.logger import get_logger
 
 # KOTH-specific imports
@@ -194,6 +197,9 @@ class NetworkManagerUnified:
                 if agreed_mode == GAME_MODE_KOTH:
                     self.game_manager = GameManagerKOTH(self.wall_config_file)
                     logger.info("Created GameManagerKOTH - all clients agreed on KOTH")
+                elif agreed_mode == GAME_MODE_CTF:
+                    self.game_manager = GameManagerCTF(self.wall_config_file)
+                    logger.info("Created GameManagerCTF - all clients agreed on CTF")
                 else:
                     self.game_manager = GameManager(self.wall_config_file)
                     logger.info("Created GameManager - all clients agreed on Survival")
@@ -256,7 +262,8 @@ class NetworkManagerUnified:
         
         # CRITICA: Spawn agents pentru modul curent
         self.game_manager.spawn_test_agents()
-        logger.info("Spawned agents for %s mode", "KOTH" if self.game_mode == GAME_MODE_KOTH else "Survival")
+        mode_name = "KOTH" if self.game_mode == GAME_MODE_KOTH else ("CTF" if self.game_mode == GAME_MODE_CTF else "Survival")
+        logger.info("Spawned agents for %s mode", mode_name)
         
         next_tick = time.perf_counter()
         time_since_broadcast = 0.0
@@ -353,6 +360,13 @@ class NetworkManagerUnified:
             koth_bytes = self.game_manager.koth_state.pack()
             if koth_bytes:
                 await self._send_to_all(bytes([MSG_TYPE_KOTH_STATE]) + koth_bytes)
+        
+        # CTF state (only for CTF mode)
+        if self.game_mode == GAME_MODE_CTF and hasattr(self.game_manager, 'get_ctf_state'):
+            import json
+            ctf_state = self.game_manager.get_ctf_state()
+            ctf_json = json.dumps(ctf_state).encode('utf-8')
+            await self._send_to_all(bytes([MSG_TYPE_CTF_STATE]) + ctf_json)
     
     # Server management
     

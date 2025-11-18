@@ -338,16 +338,19 @@ class GameManagerCTF:
     
     # Game loop
     
-    def spawn_test_agents(self, team_a_spawns: list, team_b_spawns: list) -> None:
-        """
-        Spawn agents for both teams.
+    def spawn_test_agents(self) -> None:
+        """Spawn agents for both teams using CTF-specific spawn points."""
+        from server.config import TEAM_A_SPAWNS_CTF, TEAM_B_SPAWNS_CTF
         
-        Args:
-            team_a_spawns: List of (x, y, strategy_class) for Team A.
-            team_b_spawns: List of (x, y, strategy_class) for Team B.
-        """
-        # Spawn Team A
-        for x, y, strategy_class in team_a_spawns:
+        logger.info("=" * 60)
+        logger.info("🚀 STARTING CTF AGENT SPAWN")
+        logger.info(f"Team A spawn points: {len(TEAM_A_SPAWNS_CTF)}")
+        logger.info(f"Team B spawn points: {len(TEAM_B_SPAWNS_CTF)}")
+        logger.info("=" * 60)
+        
+        # Spawn Team A with CTF strategy
+        team_a_count = 0
+        for x, y, strategy_class in TEAM_A_SPAWNS_CTF:
             agent = Agent(
                 walls_state=self.walls_state,
                 agents_dict=self.agents,
@@ -358,9 +361,12 @@ class GameManagerCTF:
                 team=Team.TEAM_A,
             )
             self.agents[agent.state.id_entity] = agent
+            team_a_count += 1
+            logger.info(f"✅ Spawned Team A agent #{agent.state.id_entity} at ({x}, {y})")
         
-        # Spawn Team B
-        for x, y, strategy_class in team_b_spawns:
+        # Spawn Team B with CTF strategy
+        team_b_count = 0
+        for x, y, strategy_class in TEAM_B_SPAWNS_CTF:
             agent = Agent(
                 walls_state=self.walls_state,
                 agents_dict=self.agents,
@@ -371,8 +377,12 @@ class GameManagerCTF:
                 team=Team.TEAM_B,
             )
             self.agents[agent.state.id_entity] = agent
+            team_b_count += 1
+            logger.info(f"✅ Spawned Team B agent #{agent.state.id_entity} at ({x}, {y})")
         
-        logger.info(f"Spawned {len(team_a_spawns)} Team A agents and {len(team_b_spawns)} Team B agents for CTF")
+        logger.info("=" * 60)
+        logger.info(f"✅ CTF SPAWN COMPLETE: {team_a_count} Team A + {team_b_count} Team B = {len(self.agents)} total")
+        logger.info("=" * 60)
     
     def update(self, dt: float) -> None:
         """
@@ -465,3 +475,30 @@ class GameManagerCTF:
                 logger.info(f"CTF game over! Winner: Team {winner}")
         
         self.tick_count += 1
+    
+    def get_ctf_state(self) -> dict:
+        """
+        Get current CTF state for network broadcast.
+        
+        Returns:
+            Dictionary with CTF state information.
+        """
+        return {
+            "team_a_captures": self.team_a_captures,
+            "team_b_captures": self.team_b_captures,
+            "time_remaining": max(0.0, CTF_MAX_DURATION - self.time_elapsed),
+            "game_over": self.game_over,
+            "winner_team": self.winner_team,
+            "flag_team_a": {
+                "x": self.flag_team_a.x,
+                "y": self.flag_team_a.y,
+                "state": int(self.flag_team_a.state),
+                "carrier_id": self.flag_team_a.carrier_id,
+            },
+            "flag_team_b": {
+                "x": self.flag_team_b.x,
+                "y": self.flag_team_b.y,
+                "state": int(self.flag_team_b.state),
+                "carrier_id": self.flag_team_b.carrier_id,
+            }
+        }

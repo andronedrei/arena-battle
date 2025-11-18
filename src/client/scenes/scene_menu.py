@@ -36,12 +36,12 @@ class SceneMenu(Scene):
         )
         self.title.register_sub_object(title_label)
 
-        # Buttons (Survival, King of the Hill, Option3)
+        # Buttons (Survival, King of the Hill, Capture the Flag)
         btn_w = 300
         btn_h = 48
         center_x = LOGICAL_SCREEN_WIDTH // 2
         start_y = LOGICAL_SCREEN_HEIGHT // 2 + 40
-        labels = ["Survival", "King of the Hill", "Option3"]
+        labels = ["Survival", "King of the Hill", "Capture the Flag"]
 
         for i, text in enumerate(labels):
             bx = center_x - btn_w // 2
@@ -82,7 +82,7 @@ class SceneMenu(Scene):
         logger.debug("[Menu] Mouse press at (%.1f, %.1f), button=%s", logical_x, logical_y, button)
         
         # Import mode constants
-        from common.config import MSG_TYPE_SELECT_MODE, GAME_MODE_SURVIVAL, GAME_MODE_KOTH
+        from common.config import MSG_TYPE_SELECT_MODE, GAME_MODE_SURVIVAL, GAME_MODE_KOTH, GAME_MODE_CTF
         
         for btn in self.buttons:
             if btn.get("disabled"):
@@ -148,6 +148,27 @@ class SceneMenu(Scene):
                             # Send ready
                             network_instance.send_ready()
                             logger.info("[Menu] Sent KOTH mode selection + ready")
+                        except Exception as e:
+                            logger.exception("[Menu] Error sending mode/ready: %s", e)
+                
+                elif name == "Capture the Flag":
+                    # Update UI
+                    btn["label"].text = "Waiting for players..."
+                    btn["rect"].color = (140, 100, 140)
+                    btn["disabled"] = True
+                    
+                    # Send mode selection + ready
+                    if network_instance:
+                        try:
+                            # Send mode selection
+                            network_instance._send_queue.put(bytes([MSG_TYPE_SELECT_MODE, GAME_MODE_CTF]))
+                            
+                            network_instance.selected_mode = GAME_MODE_CTF
+                            logger.info("[Menu] Set local mode to CTF")
+                            
+                            # Send ready
+                            network_instance.send_ready()
+                            logger.info("[Menu] Sent CTF mode selection + ready")
                         except Exception as e:
                             logger.exception("[Menu] Error sending mode/ready: %s", e)
                 

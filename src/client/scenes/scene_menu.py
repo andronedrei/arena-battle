@@ -41,7 +41,7 @@ class SceneMenu(Scene):
         btn_h = 48
         center_x = LOGICAL_SCREEN_WIDTH // 2
         start_y = LOGICAL_SCREEN_HEIGHT // 2 + 40
-        labels = ["Survival", "King of the Hill", "Capture the Flag"]
+        labels = ["Survival", "King of the Hill", "Capture the Flag", "Exit"]
 
         for i, text in enumerate(labels):
             bx = center_x - btn_w // 2
@@ -78,7 +78,7 @@ class SceneMenu(Scene):
         self.cleanup_removed_objects()
 
     def helper_mouse_press(self, logical_x: float, logical_y: float, button: int, modifiers: int) -> None:
-        """Handle clicks on buttons - FIXED VERSION."""
+        """Handle clicks on buttons."""
         logger.debug("[Menu] Mouse press at (%.1f, %.1f), button=%s", logical_x, logical_y, button)
         
         # Import mode constants
@@ -172,6 +172,27 @@ class SceneMenu(Scene):
                         except Exception as e:
                             logger.exception("[Menu] Error sending mode/ready: %s", e)
                 
+                elif name == "Exit":
+                    # Stop network and exit the application
+                    btn["label"].text = "Exiting..."
+                    btn["rect"].color = (160, 80, 80)
+                    btn["disabled"] = True
+
+                    try:
+                        # Stop network if available
+                        if network_instance:
+                            try:
+                                network_instance.stop()
+                                logger.info("[Menu] Stopped network_instance before exit")
+                            except Exception:
+                                logger.exception("[Menu] Error stopping network_instance")
+
+                        # Exit pyglet application (run() will return and client.main will cleanup)
+                        import pyglet.app as _pyglet_app
+                        _pyglet_app.exit()
+                    except Exception as e:
+                        logger.exception("[Menu] Error during exit: %s", e)
+
                 else:
                     # Not implemented
                     if not btn.get("disabled"):

@@ -66,6 +66,9 @@ class CTFStrategy(Strategy):
         # Permanent escort assignment: None=unassigned, True=escort, False=defender
         self._is_escort = None
         self._stuck_counter = 0
+        self._last_position = None
+        self._wall_avoidance_timer = 0.0
+        self._avoidance_direction = None
     
     def execute(self, agent, dt: float) -> None:
         """
@@ -81,6 +84,9 @@ class CTFStrategy(Strategy):
         # Check if we need to reload
         if agent.current_ammo == 0 and agent.reload_timer is None:
             agent.start_reload()
+        
+        # Check if agent is stuck and needs wall avoidance
+        self._check_stuck(agent, dt)
         
         # Determine current role based on game state
         self._update_role(agent)
@@ -106,6 +112,54 @@ class CTFStrategy(Strategy):
         # This is a fallback to ensure bots never stop shooting
         if agent.detected_enemies:
             self._combat(agent)
+    
+    def _check_stuck(self, agent, dt: float) -> None:
+        """
+        Check if agent is stuck and apply wall avoidance.
+        
+        Args:
+            agent: Agent instance.
+            dt: Delta time.
+        """
+        current_pos = (agent.state.x, agent.state.y)
+        
+        # Initialize last position
+        if self._last_position is None:
+            self._last_position = current_pos
+            return
+        
+        # Calculate movement distance
+        dx = current_pos[0] - self._last_position[0]
+        dy = current_pos[1] - self._last_position[1]
+        distance_moved = math.sqrt(dx * dx + dy * dy)
+        
+        # If agent moved very little (less than 2 pixels per frame), increment stuck counter
+        if distance_moved < 2.0:
+            self._stuck_counter += 1
+        else:
+            self._stuck_counter = max(0, self._stuck_counter - 1)
+        
+        self._last_position = current_pos
+        
+        # If stuck for more than 30 frames (0.5 seconds), activate wall avoidance
+        if self._stuck_counter > 30:
+            if self._avoidance_direction is None:
+                # Choose a random perpendicular direction
+                self._avoidance_direction = random.choice([
+                    Direction.NORTH_EAST, Direction.NORTH_WEST,
+                    Direction.SOUTH_EAST, Direction.SOUTH_WEST
+                ])
+                self._wall_avoidance_timer = 0.5  # Avoid for 0.5 seconds
+        
+        # Apply wall avoidance if active
+        if self._wall_avoidance_timer > 0:
+            self._wall_avoidance_timer -= dt
+            agent.move(dt, self._avoidance_direction)
+            
+            # Reset if avoidance period ended
+            if self._wall_avoidance_timer <= 0:
+                self._avoidance_direction = None
+                self._stuck_counter = 0
     
     def _update_role(self, agent) -> None:
         """
@@ -187,15 +241,26 @@ class CTFStrategy(Strategy):
             agent: Agent instance.
             dt: Delta time.
         """
+        # Skip movement if wall avoidance is active
+        if self._wall_avoidance_timer > 0:
+            return
+        
         enemy_flag = self._get_enemy_flag(agent)
         
         # Move toward enemy flag
         agent.move_towards(dt, enemy_flag.x, enemy_flag.y)
         
-        # If blocked, try a random direction to unstuck
+        # If blocked, try a perpendicular direction
         if agent.is_blocked():
-            random_dir = random.choice(list(Direction))
-            agent.move(dt, random_dir)
+            # Calculate angle to flag
+            dx = enemy_flag.x - agent.state.x
+            dy = enemy_flag.y - agent.state.y
+            angle = math.atan2(dy, dx)
+            
+            # Try perpendicular direction (90 degrees offset)
+            perpendicular_angle = angle + (math.pi / 2 if random.random() < 0.5 else -math.pi / 2)
+            perpendicular_dir = self._angle_to_direction(perpendicular_angle)
+            agent.move(dt, perpendicular_dir)
         
         # Point gun in movement direction if no enemies
         if not agent.detected_enemies:
@@ -259,17 +324,14 @@ class CTFStrategy(Strategy):
                 agent.point_gun_at(own_base_x, own_base_y)
             return
         
-        # If stuck for too long (60 frames = 1 second), try alternative path
-        if self._stuck_counter > 60 or agent.is_blocked():
+        # Wall avoidance is handled by _check_stuck, so just move towards base
+        # But if immediately blocked, try perpendicular movement
+        if agent.is_blocked():
             # Try moving perpendicular to base direction to go around obstacle
             angle_to_base = math.atan2(dy, dx)
-            perpendicular_angle = angle_to_base + math.pi / 2 * (1 if self._stuck_counter % 120 < 60 else -1)
+            perpendicular_angle = angle_to_base + math.pi / 2 * (1 if random.random() < 0.5 else -1)
             perpendicular_dir = self._angle_to_direction(perpendicular_angle)
             agent.move(dt, perpendicular_dir)
-            
-            # Reset stuck counter if we move
-            if not agent.is_blocked():
-                self._stuck_counter = max(0, self._stuck_counter - 10)
         else:
             # Move directly toward base center
             agent.move_towards(dt, own_base_x, own_base_y)

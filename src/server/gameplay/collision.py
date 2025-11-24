@@ -44,7 +44,8 @@ def _circle_hits_wall(
     """
     Check if circle overlaps any wall cells.
 
-    Checks all wall cells within circle bounds.
+    Checks all wall cells within circle bounds and calculates
+    actual distance to each wall cell.
 
     Args:
         x: Circle center X.
@@ -61,7 +62,21 @@ def _circle_hits_wall(
     for cx in range(cx_min, cx_max + 1):
         for cy in range(cy_min, cy_max + 1):
             if walls_state.has_wall(cx, cy):
-                return True
+                # Get wall cell boundaries
+                wall_px, wall_py = walls_state.to_px(cx, cy)
+                cell_size = walls_state.grid_unit
+                
+                # Find closest point on wall cell to circle center
+                closest_x = max(wall_px, min(x, wall_px + cell_size))
+                closest_y = max(wall_py, min(y, wall_py + cell_size))
+                
+                # Check if distance to closest point is within radius
+                dx = x - closest_x
+                dy = y - closest_y
+                distance_squared = dx * dx + dy * dy
+                
+                if distance_squared < radius * radius:
+                    return True
 
     return False
 

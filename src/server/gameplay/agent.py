@@ -243,13 +243,27 @@ class Agent:
         """
         dx = target_x - self.state.x
         dy = target_y - self.state.y
-
-        # Pick best 8-direction
-        if abs(dx) > abs(dy):
-            direction = Direction.EAST if dx > 0 else Direction.WEST
-        else:
-            direction = Direction.SOUTH if dy < 0 else Direction.NORTH
-
+        
+        # Calculate angle to target and pick best 8-direction
+        angle = math.atan2(dy, dx)
+        
+        # Convert angle to 8-directional movement
+        # Divide circle into 8 sections of 45 degrees (pi/4 radians)
+        angle_normalized = angle % (2 * math.pi)
+        section = int((angle_normalized + math.pi / 8) / (math.pi / 4)) % 8
+        
+        directions = [
+            Direction.EAST,       # 0 degrees
+            Direction.NORTH_EAST, # 45 degrees
+            Direction.NORTH,      # 90 degrees
+            Direction.NORTH_WEST, # 135 degrees
+            Direction.WEST,       # 180 degrees
+            Direction.SOUTH_WEST, # 225 degrees
+            Direction.SOUTH,      # 270 degrees
+            Direction.SOUTH_EAST, # 315 degrees
+        ]
+        
+        direction = directions[section]
         self.move(dt, direction)
 
     def is_blocked(self) -> bool:

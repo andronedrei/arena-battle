@@ -1,7 +1,7 @@
 """
 CTF AI Strategy - Intelligent bot behavior for Capture the Flag.
 
-Implements role-based behavior: Attacker, Carrier, Defender, and Hunter.
+Implements role-based behavior: Attacker, Carrier, Hunter, and Escort.
 """
 
 import random
@@ -27,9 +27,8 @@ class CTFRole(IntEnum):
     """Bot role enumeration."""
     ATTACKER = 0     # Go get enemy flag
     CARRIER = 1      # Carrying flag back to base
-    DEFENDER = 2     # Protect own flag
-    HUNTER = 3       # Chase enemy carrier
-    ESCORT = 4       # Escort friendly carrier without crowding
+    HUNTER = 2       # Chase enemy carrier
+    ESCORT = 3       # Escort friendly carrier without crowding
 
 
 class CTFStrategy(Strategy):
@@ -39,16 +38,14 @@ class CTFStrategy(Strategy):
     Behavior:
     - Attackers rush enemy flag
     - Carriers bring flag home
-    - Defenders protect base
     - Hunters chase enemy carriers
+    - Escorts support friendly carrier
     """
     
     # Configuration
-    BASE_DEFENSE_RADIUS = 150.0  # Patrol radius around own base
     LOW_HEALTH_THRESHOLD = 25.0  # When to retreat
     CARRIER_ESCORT_DISTANCE = 120.0  # Distance to maintain from carrier
     CARRIER_MIN_DISTANCE = 60.0  # Minimum distance to avoid crowding carrier
-    CHANGE_DIRECTION_INTERVAL = 0.5  # Random direction change
     HUNTER_AGGRESSION_RANGE = 250.0  # Range to chase carrier
     ESCORT_LATERAL_OFFSET = 80.0  # Lateral offset for escort positioning
     
@@ -61,13 +58,13 @@ class CTFStrategy(Strategy):
         """
         self.game_manager = game_manager
         self.role = CTFRole.ATTACKER  # Default role
-        self.direction_timer = 0.0
-        self.patrol_direction = random.choice(list(Direction))
-        # Permanent escort assignment: None=unassigned, True=escort, False=defender
+        # Permanent escort assignment: None=unassigned, True=escort, False=attacker
         self._is_escort = None
+        # Simple stuck detection
         self._stuck_counter = 0
         self._last_position = None
-        self._wall_avoidance_timer = 0.0
+        # Avoidance: just pick a random direction and go for a time
+        self._avoidance_timer = 0.0
         self._avoidance_direction = None
     
     def execute(self, agent, dt: float) -> None:
@@ -101,8 +98,6 @@ class CTFStrategy(Strategy):
             self._carrier_behavior(agent, dt)
         elif self.role == CTFRole.ESCORT:
             self._escort_behavior(agent, dt)
-        elif self.role == CTFRole.DEFENDER:
-            self._defender_behavior(agent, dt)
         elif self.role == CTFRole.HUNTER:
             self._hunter_behavior(agent, dt)
         else:  # ATTACKER
@@ -115,7 +110,7 @@ class CTFStrategy(Strategy):
     
     def _check_stuck(self, agent, dt: float) -> None:
         """
-        Check if agent is stuck and apply wall avoidance.
+        Simple stuck detection: if not moving, pick a random direction and go.
         
         Args:
             agent: Agent instance.
@@ -133,33 +128,33 @@ class CTFStrategy(Strategy):
         dy = current_pos[1] - self._last_position[1]
         distance_moved = math.sqrt(dx * dx + dy * dy)
         
-        # If agent moved very little (less than 2 pixels per frame), increment stuck counter
-        if distance_moved < 2.0:
+        # If moved less than 1 pixel, increment stuck counter
+        if distance_moved < 1.0:
             self._stuck_counter += 1
         else:
-            self._stuck_counter = max(0, self._stuck_counter - 1)
+            self._stuck_counter = 0  # Reset when moving
         
         self._last_position = current_pos
         
-        # If stuck for more than 30 frames (0.5 seconds), activate wall avoidance
-        if self._stuck_counter > 30:
-            if self._avoidance_direction is None:
-                # Choose a random perpendicular direction
-                self._avoidance_direction = random.choice([
-                    Direction.NORTH_EAST, Direction.NORTH_WEST,
-                    Direction.SOUTH_EAST, Direction.SOUTH_WEST
-                ])
-                self._wall_avoidance_timer = 0.5  # Avoid for 0.5 seconds
+        # If stuck for 20 frames (~0.33 seconds), activate avoidance
+        if self._stuck_counter >= 20 and self._avoidance_timer <= 0:
+            # Pick a random direction
+            all_directions = [
+                Direction.NORTH, Direction.NORTH_EAST, Direction.EAST, Direction.SOUTH_EAST,
+                Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, Direction.NORTH_WEST
+            ]
+            self._avoidance_direction = random.choice(all_directions)
+            # Go in that direction for 0.5-1.0 seconds
+            self._avoidance_timer = random.uniform(0.5, 1.0)
+            self._stuck_counter = 0  # Reset counter
         
-        # Apply wall avoidance if active
-        if self._wall_avoidance_timer > 0:
-            self._wall_avoidance_timer -= dt
+        # Apply avoidance if active
+        if self._avoidance_timer > 0:
+            self._avoidance_timer -= dt
             agent.move(dt, self._avoidance_direction)
-            
-            # Reset if avoidance period ended
-            if self._wall_avoidance_timer <= 0:
+            # If timer expired, clear direction
+            if self._avoidance_timer <= 0:
                 self._avoidance_direction = None
-                self._stuck_counter = 0
     
     def _update_role(self, agent) -> None:
         """
@@ -196,7 +191,8 @@ class CTFStrategy(Strategy):
                         self.role = CTFRole.ESCORT
                         return
                     else:
-                        self.role = CTFRole.DEFENDER
+                        # Stay at base but as attacker ready to push
+                        self.role = CTFRole.ATTACKER
                         return
         
         # Is our flag taken? Hunt the carrier!
@@ -217,20 +213,7 @@ class CTFStrategy(Strategy):
                 self.role = CTFRole.ATTACKER
                 return
         
-        # Is our flag at base? Should I defend?
-        own_base_x, own_base_y = self._get_own_base(agent)
-        dx = agent.state.x - own_base_x
-        dy = agent.state.y - own_base_y
-        distance_to_base = math.sqrt(dx * dx + dy * dy)
-        
-        # Assign some agents as defenders (closest ones or randomly)
-        if own_flag.state == 0 and distance_to_base < self.BASE_DEFENSE_RADIUS:
-            # 30% chance to be defender if near base
-            if random.random() < 0.3:
-                self.role = CTFRole.DEFENDER
-                return
-        
-        # Default: be an attacker
+        # Default: be an attacker (base defense handled by CTFBaseDefenderStrategy)
         self.role = CTFRole.ATTACKER
     
     def _attacker_behavior(self, agent, dt: float) -> None:
@@ -241,26 +224,14 @@ class CTFStrategy(Strategy):
             agent: Agent instance.
             dt: Delta time.
         """
-        # Skip movement if wall avoidance is active
-        if self._wall_avoidance_timer > 0:
-            return
-        
         enemy_flag = self._get_enemy_flag(agent)
         
-        # Move toward enemy flag
-        agent.move_towards(dt, enemy_flag.x, enemy_flag.y)
-        
-        # If blocked, try a perpendicular direction
-        if agent.is_blocked():
-            # Calculate angle to flag
-            dx = enemy_flag.x - agent.state.x
-            dy = enemy_flag.y - agent.state.y
-            angle = math.atan2(dy, dx)
-            
-            # Try perpendicular direction (90 degrees offset)
-            perpendicular_angle = angle + (math.pi / 2 if random.random() < 0.5 else -math.pi / 2)
-            perpendicular_dir = self._angle_to_direction(perpendicular_angle)
-            agent.move(dt, perpendicular_dir)
+        # If avoidance is active, let it handle movement
+        if self._avoidance_timer > 0:
+            pass
+        else:
+            # Normal movement toward flag
+            agent.move_towards(dt, enemy_flag.x, enemy_flag.y)
         
         # Point gun in movement direction if no enemies
         if not agent.detected_enemies:
@@ -324,16 +295,12 @@ class CTFStrategy(Strategy):
                 agent.point_gun_at(own_base_x, own_base_y)
             return
         
-        # Wall avoidance is handled by _check_stuck, so just move towards base
-        # But if immediately blocked, try perpendicular movement
-        if agent.is_blocked():
-            # Try moving perpendicular to base direction to go around obstacle
-            angle_to_base = math.atan2(dy, dx)
-            perpendicular_angle = angle_to_base + math.pi / 2 * (1 if random.random() < 0.5 else -1)
-            perpendicular_dir = self._angle_to_direction(perpendicular_angle)
-            agent.move(dt, perpendicular_dir)
+        # Move towards base
+        if self._avoidance_timer > 0:
+            # Avoidance active, don't interfere
+            pass
         else:
-            # Move directly toward base center
+            # Normal path
             agent.move_towards(dt, own_base_x, own_base_y)
         
         # Point gun at enemies if any, else toward base
@@ -382,9 +349,9 @@ class CTFStrategy(Strategy):
         base_distance = math.sqrt(base_dx * base_dx + base_dy * base_dy)
         
         if base_distance < 0.01:
-            # Carrier at base, become defender and reset assignment
+            # Carrier at base, become attacker and reset assignment
             self._is_escort = None
-            self.role = CTFRole.DEFENDER
+            self.role = CTFRole.ATTACKER
             return
         
         # Calculate escort position: lateral to carrier's path
@@ -424,52 +391,6 @@ class CTFStrategy(Strategy):
             scan_x = carrier_pos.x + base_dx * 0.5
             scan_y = carrier_pos.y + base_dy * 0.5
             agent.point_gun_at(scan_x, scan_y)
-    
-    def _defender_behavior(self, agent, dt: float) -> None:
-        """
-        Defender: protect own flag and base.
-        
-        Args:
-            agent: Agent instance.
-            dt: Delta time.
-        """
-        own_base_x, own_base_y = self._get_own_base(agent)
-        own_flag = self._get_own_flag(agent)
-        
-        # If flag is dropped, go return it immediately
-        if own_flag.state == 2:  # FlagState.DROPPED
-            agent.move_towards(dt, own_flag.x, own_flag.y)
-            if not agent.detected_enemies:
-                agent.point_gun_at(own_flag.x, own_flag.y)
-            return
-        
-        # Patrol around base
-        dx = agent.state.x - own_base_x
-        dy = agent.state.y - own_base_y
-        distance = math.sqrt(dx * dx + dy * dy)
-        
-        if distance > self.BASE_DEFENSE_RADIUS:
-            # Too far from base - return
-            agent.move_towards(dt, own_base_x, own_base_y)
-            if not agent.detected_enemies:
-                agent.point_gun_at(own_base_x, own_base_y)
-        else:
-            # Patrol around base
-            self.direction_timer += dt
-            if self.direction_timer >= self.CHANGE_DIRECTION_INTERVAL:
-                self.patrol_direction = random.choice(list(Direction))
-                self.direction_timer = 0.0
-            
-            agent.move(dt, self.patrol_direction)
-            
-            # If blocked, change direction immediately
-            if agent.is_blocked():
-                self.patrol_direction = random.choice(list(Direction))
-                agent.move(dt, self.patrol_direction)
-        
-        # Always point gun at enemies if visible, otherwise toward base center
-        if not agent.detected_enemies:
-            agent.point_gun_at(own_base_x, own_base_y)
     
     def _hunter_behavior(self, agent, dt: float) -> None:
         """

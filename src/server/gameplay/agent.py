@@ -203,9 +203,10 @@ class Agent:
 
     def move(self, dt: float, direction: Direction) -> None:
         """
-        Move agent in given direction.
+        Move agent in given direction with wall sliding.
 
         Sets self.blocked if movement is obstructed.
+        Implements wall sliding: if diagonal movement is blocked, tries X and Y components separately.
 
         Args:
             dt: Delta time in seconds.
@@ -228,6 +229,76 @@ class Agent:
             self.state.set_position(new_x, new_y)
             self.blocked = None
         else:
+            # Blocked! Try wall sliding: attempt X and Y movement separately
+            # Prioritize the dominant movement direction for more natural sliding
+            
+            # Determine which component is larger
+            abs_dx = abs(dx)
+            abs_dy = abs(dy)
+            
+            # Try dominant direction first, then secondary direction
+            if abs_dx >= abs_dy:
+                # Try X first (horizontal movement is dominant)
+                if dx != 0:
+                    collision_x, _ = check_move_validity(
+                        new_x,
+                        self.state.y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_x == CollisionType.NONE:
+                        self.state.set_position(new_x, self.state.y)
+                        self.blocked = None
+                        return
+                
+                # X blocked, try Y
+                if dy != 0:
+                    collision_y, _ = check_move_validity(
+                        self.state.x,
+                        new_y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_y == CollisionType.NONE:
+                        self.state.set_position(self.state.x, new_y)
+                        self.blocked = None
+                        return
+            else:
+                # Try Y first (vertical movement is dominant)
+                if dy != 0:
+                    collision_y, _ = check_move_validity(
+                        self.state.x,
+                        new_y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_y == CollisionType.NONE:
+                        self.state.set_position(self.state.x, new_y)
+                        self.blocked = None
+                        return
+                
+                # Y blocked, try X
+                if dx != 0:
+                    collision_x, _ = check_move_validity(
+                        new_x,
+                        self.state.y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_x == CollisionType.NONE:
+                        self.state.set_position(new_x, self.state.y)
+                        self.blocked = None
+                        return
+            
+            # Completely blocked on both axes
             self.blocked = (collision_type, obstacle_id)
 
     def move_towards(

@@ -13,6 +13,7 @@ from server.strategy.random_strategy import RandomStrategy
 from server.strategy.aggressive_survival_strategy import AggressiveSurvivalStrategy
 from server.strategy.koth_strategy import KOTHStrategy
 from server.strategy.ctf_strategy import CTFStrategy
+from server.strategy.ctf_base_defender_strategy import CTFBaseDefenderStrategy
 
 
 # ============================================================================
@@ -63,19 +64,19 @@ TEAM_B_SPAWNS_KOTH = [
     (880.0, 360.0, KOTHStrategy),
 ]
 
-# Game setup - CTF MODE (4 agents per team)
+# Game setup - CTF MODE (4 agents per team: 3 attackers + 1 base defender)
 TEAM_A_SPAWNS_CTF = [
     (150.0, 280.0, CTFStrategy),
     (150.0, 440.0, CTFStrategy),
     (250.0, 240.0, CTFStrategy),
-    (250.0, 480.0, CTFStrategy),
+    (100.0, 360.0, CTFBaseDefenderStrategy),  # Base Defender - near flag
 ]
 
 TEAM_B_SPAWNS_CTF = [
-    (1130.0, 280.0, CTFStrategy),
-    (1130.0, 440.0, CTFStrategy),
-    (1030.0, 240.0, CTFStrategy),
-    (1030.0, 480.0, CTFStrategy),
+    (1150.0, 280.0, CTFStrategy),
+    (1100.0, 440.0, CTFStrategy),
+    (1000.0, 240.0, CTFStrategy),
+    (1150.0, 360.0, CTFBaseDefenderStrategy),  # Base Defender - near flag (safe from walls)
 ]
 
 REQUIRED_CLIENTS_TO_START = 1  # Changed to 1 so you can test alone

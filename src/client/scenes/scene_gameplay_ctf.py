@@ -18,6 +18,15 @@ from common.states.state_entity import StateEntity
 
 from client.display.display_ctf_flag import DisplayCTFFlag
 from client.display.display_ctf_hud import DisplayCTFHUD
+from common.ctf_config import (
+    CTF_FLAG_TEAM_A_BASE_X,
+    CTF_FLAG_TEAM_A_BASE_Y,
+    CTF_FLAG_TEAM_B_BASE_X,
+    CTF_FLAG_TEAM_B_BASE_Y,
+    CTF_FLAG_RETURN_RADIUS,
+    CTF_CAPTURE_ZONE_COLOR,
+    CTF_CAPTURE_ZONE_OPACITY,
+)
 from common.logger import get_logger
 import pyglet
 
@@ -45,6 +54,10 @@ class SceneGameplayCTF(Scene):
         self.display_bg: DisplayBackground | None = None
         self.display_walls: DisplayWalls | None = None
         self.display_ctf_hud: DisplayCTFHUD | None = None
+        
+        # Capture zone circles (gold/auriu)
+        self.capture_zone_team_a: pyglet.shapes.Circle | None = None
+        self.capture_zone_team_b: pyglet.shapes.Circle | None = None
         
         # Flag displays
         self.display_flag_team_a: DisplayCTFFlag | None = None
@@ -87,6 +100,25 @@ class SceneGameplayCTF(Scene):
                 walls_config_file=self.walls_config_file,
             )
         )
+        
+        # Capture zones (gold circles showing where to return flags)
+        self.capture_zone_team_a = pyglet.shapes.Circle(
+            x=CTF_FLAG_TEAM_A_BASE_X,
+            y=CTF_FLAG_TEAM_A_BASE_Y,
+            radius=CTF_FLAG_RETURN_RADIUS,
+            color=CTF_CAPTURE_ZONE_COLOR,
+            batch=self.batch,
+        )
+        self.capture_zone_team_a.opacity = CTF_CAPTURE_ZONE_OPACITY
+        
+        self.capture_zone_team_b = pyglet.shapes.Circle(
+            x=CTF_FLAG_TEAM_B_BASE_X,
+            y=CTF_FLAG_TEAM_B_BASE_Y,
+            radius=CTF_FLAG_RETURN_RADIUS,
+            color=CTF_CAPTURE_ZONE_COLOR,
+            batch=self.batch,
+        )
+        self.capture_zone_team_b.opacity = CTF_CAPTURE_ZONE_OPACITY
         
         # CTF flags (initial positions, will be updated from server)
         # Team A flag (starts on left side)
@@ -186,6 +218,14 @@ class SceneGameplayCTF(Scene):
     def helper_leave(self) -> None:
         """Clean up all resources."""
         super().helper_leave()
+        
+        # Clean up capture zones
+        if self.capture_zone_team_a:
+            self.capture_zone_team_a.delete()
+            self.capture_zone_team_a = None
+        if self.capture_zone_team_b:
+            self.capture_zone_team_b.delete()
+            self.capture_zone_team_b = None
         
         # Clean up win screen
         if self.win_label:

@@ -20,8 +20,8 @@ CTF_FLAG_TEAM_B_BASE_Y = 360
 CTF_FLAG_PICKUP_RADIUS = 30
 
 # Flag return radius (how close flag must be to base to be returned/captured)
-# Set to 100 for easier capturing without blocking near base
-CTF_FLAG_RETURN_RADIUS = 100
+# Increased to 150 for easier flag capture/return near base
+CTF_FLAG_RETURN_RADIUS = 150
 
 
 # ============================================================================
@@ -62,8 +62,8 @@ CTF_FLAG_TEAM_B_COLOR = (255, 100, 100)  # Red
 CTF_FLAG_OPACITY = 255
 
 # Capture zone visualization
-CTF_CAPTURE_ZONE_COLOR = (100, 255, 100)
-CTF_CAPTURE_ZONE_OPACITY = 80
+CTF_CAPTURE_ZONE_COLOR = (255, 215, 0)  # Gold/auriu
+CTF_CAPTURE_ZONE_OPACITY = 120  # Increased for better visibility
 
 
 # ============================================================================

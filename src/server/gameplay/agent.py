@@ -203,9 +203,10 @@ class Agent:
 
     def move(self, dt: float, direction: Direction) -> None:
         """
-        Move agent in given direction.
+        Move agent in given direction with wall sliding.
 
         Sets self.blocked if movement is obstructed.
+        Implements wall sliding: if diagonal movement is blocked, tries X and Y components separately.
 
         Args:
             dt: Delta time in seconds.
@@ -228,6 +229,76 @@ class Agent:
             self.state.set_position(new_x, new_y)
             self.blocked = None
         else:
+            # Blocked! Try wall sliding: attempt X and Y movement separately
+            # Prioritize the dominant movement direction for more natural sliding
+            
+            # Determine which component is larger
+            abs_dx = abs(dx)
+            abs_dy = abs(dy)
+            
+            # Try dominant direction first, then secondary direction
+            if abs_dx >= abs_dy:
+                # Try X first (horizontal movement is dominant)
+                if dx != 0:
+                    collision_x, _ = check_move_validity(
+                        new_x,
+                        self.state.y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_x == CollisionType.NONE:
+                        self.state.set_position(new_x, self.state.y)
+                        self.blocked = None
+                        return
+                
+                # X blocked, try Y
+                if dy != 0:
+                    collision_y, _ = check_move_validity(
+                        self.state.x,
+                        new_y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_y == CollisionType.NONE:
+                        self.state.set_position(self.state.x, new_y)
+                        self.blocked = None
+                        return
+            else:
+                # Try Y first (vertical movement is dominant)
+                if dy != 0:
+                    collision_y, _ = check_move_validity(
+                        self.state.x,
+                        new_y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_y == CollisionType.NONE:
+                        self.state.set_position(self.state.x, new_y)
+                        self.blocked = None
+                        return
+                
+                # Y blocked, try X
+                if dx != 0:
+                    collision_x, _ = check_move_validity(
+                        new_x,
+                        self.state.y,
+                        self.state.radius,
+                        self.agents_dict,
+                        self.walls_state,
+                        exclude_id=self.state.id_entity,
+                    )
+                    if collision_x == CollisionType.NONE:
+                        self.state.set_position(new_x, self.state.y)
+                        self.blocked = None
+                        return
+            
+            # Completely blocked on both axes
             self.blocked = (collision_type, obstacle_id)
 
     def move_towards(
@@ -243,13 +314,27 @@ class Agent:
         """
         dx = target_x - self.state.x
         dy = target_y - self.state.y
-
-        # Pick best 8-direction
-        if abs(dx) > abs(dy):
-            direction = Direction.EAST if dx > 0 else Direction.WEST
-        else:
-            direction = Direction.SOUTH if dy < 0 else Direction.NORTH
-
+        
+        # Calculate angle to target and pick best 8-direction
+        angle = math.atan2(dy, dx)
+        
+        # Convert angle to 8-directional movement
+        # Divide circle into 8 sections of 45 degrees (pi/4 radians)
+        angle_normalized = angle % (2 * math.pi)
+        section = int((angle_normalized + math.pi / 8) / (math.pi / 4)) % 8
+        
+        directions = [
+            Direction.EAST,       # 0 degrees
+            Direction.NORTH_EAST, # 45 degrees
+            Direction.NORTH,      # 90 degrees
+            Direction.NORTH_WEST, # 135 degrees
+            Direction.WEST,       # 180 degrees
+            Direction.SOUTH_WEST, # 225 degrees
+            Direction.SOUTH,      # 270 degrees
+            Direction.SOUTH_EAST, # 315 degrees
+        ]
+        
+        direction = directions[section]
         self.move(dt, direction)
 
     def is_blocked(self) -> bool:
